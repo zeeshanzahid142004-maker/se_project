@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Warning
@@ -34,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -115,6 +117,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     val detectedItems = remember { mutableStateListOf<DetectedItem>() }
     var showReviewSheet    by remember { mutableStateOf(false) }
     var showComplaintSheet by remember { mutableStateOf(false) }
+    var cameraReady        by remember { mutableStateOf(false) }
 
     // ── Safely init YoloDetector — null if tflite asset missing ──────────
     val detector = remember {
@@ -146,6 +149,10 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     )
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF080C10))) {
+
+        val topInsetDp    = 68.dp
+        val bottomInsetDp = 280.dp
+        val camColor = if (cameraReady) tealN else redN
 
         // ── CameraX Preview ───────────────────────────────────────────────
         AndroidView(
@@ -255,9 +262,11 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                             preview, analysis
                         )
                         Log.d(TAG, "Camera bound to lifecycle OK")
+                        mainExecutor.execute { cameraReady = true }
 
                     } catch (e: Exception) {
                         Log.e(TAG, "CameraProvider setup failed: ${e.message}", e)
+                        mainExecutor.execute { cameraReady = false }
                     }
                 }, mainExecutor)
                 pv
@@ -266,8 +275,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         )
 
         // ── Vignette silhouette with rounded corners on the clear zone ────
-        val topInsetDp    = 68.dp   // single top bar row height
-        val bottomInsetDp = 280.dp
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -359,7 +366,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                     val bLen = 42.dp.toPx()
                     val sw   = 2.6f
                     val r    = 12.dp.toPx()
-                    val col  = tealN.copy(alpha = pulse)
+                    val col  = camColor.copy(alpha = pulse)
 
                     drawLine(col, Offset(0f, r + bLen), Offset(0f, r), sw)
                     drawArc(col, 180f, 90f, false, Offset(0f, 0f), Size(r*2,r*2), style = Stroke(sw))
@@ -379,11 +386,11 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
 
                     val ly = size.height * scanY
                     drawLine(
-                        Brush.horizontalGradient(listOf(Color.Transparent, tealN.copy(0.8f), tealN, tealN.copy(0.8f), Color.Transparent)),
+                        Brush.horizontalGradient(listOf(Color.Transparent, camColor.copy(0.8f), camColor, camColor.copy(0.8f), Color.Transparent)),
                         Offset(0f, ly), Offset(size.width, ly), 1.6f
                     )
                     drawLine(
-                        Brush.horizontalGradient(listOf(Color.Transparent, tealN.copy(0.22f), Color.Transparent)),
+                        Brush.horizontalGradient(listOf(Color.Transparent, camColor.copy(0.22f), Color.Transparent)),
                         Offset(0f, ly), Offset(size.width, ly), 10f
                     )
                 }
@@ -402,52 +409,54 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 .padding(horizontal = 10.dp, vertical = 4.dp)
         )
 
-        // ── Top bar ───────────────────────────────────────────────────────
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            // Left: back + title
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(
-                    onClick = { navController.popBackStack() },
-                    modifier = Modifier
-                        .size(38.dp)
-                        .background(surfN.copy(alpha = 0.88f), CircleShape)
-                ) {
-                    Icon(Icons.Default.ArrowBack, "Back", tint = whiteN, modifier = Modifier.size(20.dp))
-                }
-                Spacer(Modifier.width(10.dp))
-                Text("New Box", color = whiteN, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-            }
+        // ── In-zone UI — all overlays sit INSIDE the scan window ─────────
 
-            // Right: REPORT + pulse dot
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(orangeN.copy(alpha = 0.15f))
-                        .border(1.dp, orangeN.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
-                        .clickable(remember { MutableInteractionSource() }, null) { showComplaintSheet = true }
-                        .padding(horizontal = 12.dp, vertical = 7.dp)
-                ) {
-                    Icon(Icons.Default.Warning, null, tint = orangeN, modifier = Modifier.size(13.dp))
-                    Spacer(Modifier.width(5.dp))
-                    Text("REPORT", color = orangeN, fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+        // Back button — top-left, just inside the scan zone
+        IconButton(
+            onClick = { navController.popBackStack() },
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(start = 10.dp, bottom = 15.dp)
+                .size(30.dp)
+
+
+
+        ) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = whiteN, modifier = Modifier.size(30.dp))
+        }
+
+        // Pulse dot — top-left inside zone, next to back button
+        Box(
+
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(start = 15.dp, top = 55.dp)
+                .size(18.dp)
+                .drawBehind {
+                    drawCircle(camColor, radius = size.minDimension / 2f, alpha = pulse * 0.55f)
+                    drawCircle(camColor, radius = size.minDimension * 0.36f, alpha = pulse * 0.8f)
+                    drawCircle(camColor, radius = size.minDimension * 0.22f)
                 }
-                Spacer(Modifier.width(10.dp))
-                Box(modifier = Modifier.size(22.dp).drawBehind {
-                    drawCircle(tealN, radius = size.minDimension / 2f, alpha = pulse * 0.55f)
-                    drawCircle(tealN, radius = size.minDimension * 0.36f, alpha = pulse * 0.8f)
-                    drawCircle(tealN, radius = size.minDimension * 0.22f)
-                })
-            }
+        )
+
+        // REPORT pill — bottom-right of scan zone, just above bottom sheet
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(bottom = bottomInsetDp + 10.dp, end = 12.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(orangeN.copy(alpha = 0.18f))
+                .border(1.dp, orangeN.copy(alpha = 0.55f), RoundedCornerShape(20.dp))
+                .clickable(remember { MutableInteractionSource() }, null) { showComplaintSheet = true }
+                .padding(horizontal = 11.dp, vertical = 6.dp)
+        ) {
+            Icon(Icons.Default.Warning, null, tint = orangeN, modifier = Modifier.size(11.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("REPORT", color = orangeN, fontSize = 8.sp,
+                fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
         }
 
         // ── Bottom sheet ──────────────────────────────────────────────────
