@@ -557,6 +557,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             Button(
                 onClick = {
                     Log.d(TAG, "Generate QR tapped, items=${detectedItems.size}")
+                    isScanningRef.set(false)   // pause item detection while reviewing
                     showReviewSheet = true
                 },
                 modifier = Modifier
@@ -581,8 +582,14 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         // ── Overlays ──────────────────────────────────────────────────────
         AnimatedVisibility(
             visible = showReviewSheet,
-            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-            exit  = slideOutVertically(targetOffsetY  = { it }) + fadeOut()
+            enter = slideInVertically(
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                initialOffsetY = { it }
+            ) + fadeIn(animationSpec = tween(220)),
+            exit = slideOutVertically(
+                animationSpec = tween(280, easing = FastOutSlowInEasing),
+                targetOffsetY = { it }
+            ) + fadeOut(animationSpec = tween(220, easing = FastOutSlowInEasing))
         ) {
             ReviewSheet(
                 items     = detectedItems,
@@ -592,14 +599,23 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                     showReviewSheet = false
                     navController.navigate("qr_display_screen")
                 },
-                onDismiss = { showReviewSheet = false }
+                onDismiss = {
+                    showReviewSheet = false
+                    isScanningRef.set(true)   // resume detection when review dismissed
+                }
             )
         }
 
         AnimatedVisibility(
             visible = showComplaintSheet,
-            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-            exit  = slideOutVertically(targetOffsetY  = { it }) + fadeOut()
+            enter = slideInVertically(
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                initialOffsetY = { it }
+            ) + fadeIn(animationSpec = tween(220)),
+            exit = slideOutVertically(
+                animationSpec = tween(280, easing = FastOutSlowInEasing),
+                targetOffsetY = { it }
+            ) + fadeOut(animationSpec = tween(220, easing = FastOutSlowInEasing))
         ) {
             ComplaintSheet(onDismiss = { showComplaintSheet = false })
         }
@@ -718,7 +734,7 @@ fun ReviewSheet(
             ) {
                 Icon(Icons.Default.CheckCircle, null, tint = Color.White, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Generate QR", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text("Finalize", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             }
             Spacer(Modifier.height(8.dp))
         }
