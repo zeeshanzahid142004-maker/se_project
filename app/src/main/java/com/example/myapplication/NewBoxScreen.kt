@@ -54,6 +54,9 @@ import androidx.core.content.ContextCompat
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private const val TAG = "NewBoxScreen"
 
@@ -119,17 +122,25 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     var showComplaintSheet by remember { mutableStateOf(false) }
     var cameraReady        by remember { mutableStateOf(false) }
 
-    // ── Safely init YoloDetector — null if tflite asset missing ──────────
-    val detector = remember {
-        try {
-            Log.d(TAG, "YoloDetector: loading model from assets")
-            YoloDetector(context).also {
-                Log.d(TAG, "YoloDetector: loaded OK")
+    // ── Scanning guard — AtomicBoolean so the background analysis thread
+    //    can read it without Compose snapshot concerns.
+    val isScanningRef = remember { AtomicBoolean(true) }
+    DisposableEffect(Unit) { onDispose { isScanningRef.set(false) } }
+
+    // ── Load YoloDetector on a background thread so it does not block the
+    //    UI during the screen-entry transition.
+    var detector by remember { mutableStateOf<YoloDetector?>(null) }
+    LaunchedEffect(Unit) {
+        val d = withContext(Dispatchers.Default) {
+            try {
+                Log.d(TAG, "YoloDetector: loading model from assets")
+                YoloDetector(context).also { Log.d(TAG, "YoloDetector: loaded OK") }
+            } catch (e: Exception) {
+                Log.e(TAG, "YoloDetector: FAILED to load — ${e.message}", e)
+                null
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "YoloDetector: FAILED to load — ${e.message}", e)
-            null   // null = no inference, camera still shows
         }
+        detector = d
     }
     DisposableEffect(Unit) { onDispose { detector?.close() } }
 
@@ -182,6 +193,11 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                             .build()
                             .also { ia ->
                                 ia.setAnalyzer(analysisExecutor) { imageProxy ->
+
+                                    // Stop immediately if finalized or screen exited
+                                    if (!isScanningRef.get()) {
+                                        imageProxy.close(); return@setAnalyzer
+                                    }
 
                                     // Throttle to every 800ms
                                     val now = System.currentTimeMillis()
@@ -572,6 +588,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 items     = detectedItems,
                 onConfirm = {
                     Log.d(TAG, "Review confirmed, navigating to qr_display_screen")
+                    isScanningRef.set(false)   // stop detection immediately
                     showReviewSheet = false
                     navController.navigate("qr_display_screen")
                 },

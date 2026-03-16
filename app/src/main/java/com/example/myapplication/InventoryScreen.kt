@@ -53,12 +53,12 @@ private object UiTuning {
     const val flapStagger = 0.03f
     const val flapBounceBack = 0.93f
 
-    const val openMs = 520
+    const val openMs = 400
     const val bounceDownMs = 70
     const val bounceUpMs = 85
     const val rippleMs = 720
     const val dustMs = 700
-    const val navDelayMs = 90L
+    const val navDelayMs = 30L
 
     const val bloomAlpha = 0.18f
     const val dustParticles = 20
@@ -255,9 +255,12 @@ fun InteractiveBoxItem(
                         progress.animateTo(UiTuning.flapBounceBack, tween(UiTuning.bounceDownMs, easing = FastOutSlowInEasing))
                         progress.animateTo(1f, tween(UiTuning.bounceUpMs, easing = FastOutSlowInEasing))
 
-                        rippleJob.join()
-                        dustJob.join()
-                        bloomJob.join()
+                        // Navigate right after the box-open animation completes.
+                        // Ripple/dust/bloom are decorative — cancel them via coroutine scope
+                        // rather than blocking navigation until they finish.
+                        rippleJob.cancel()
+                        dustJob.cancel()
+                        bloomJob.cancel()
 
                         delay(UiTuning.navDelayMs)
                         navController.navigate(targetRoute)
