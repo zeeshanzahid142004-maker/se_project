@@ -4,7 +4,13 @@ import androidx.annotation.OptIn
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -42,6 +48,7 @@ import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
+import java.util.concurrent.atomic.AtomicBoolean
 
 private val tealS    = Color(0xFF2DD4BF)
 private val redS     = Color(0xFFE53E3E)
@@ -171,6 +178,11 @@ private fun ScannerContent(navController: NavController) {
     var scannedValue by remember { mutableStateOf<String?>(null) }
     var navigated    by remember { mutableStateOf(false) }
 
+    // Stop the ML Kit analyzer as soon as a code is found, so the camera
+    // stops processing frames and the UI stays stable.
+    val isScanningRef = remember { AtomicBoolean(true) }
+    DisposableEffect(Unit) { onDispose { isScanningRef.set(false) } }
+
     val inf = rememberInfiniteTransition(label = "scan")
     val scanY by inf.animateFloat(
         0f, 1f,
@@ -219,7 +231,7 @@ private fun ScannerContent(navController: NavController) {
                         .also { analysis ->
                             analysis.setAnalyzer(analysisExecutor) { imageProxy ->
                                 val mediaImage = imageProxy.image
-                                if (mediaImage != null && !navigated) {
+                                if (mediaImage != null && isScanningRef.get()) {
                                     val rotation = imageProxy.imageInfo.rotationDegrees
                                     val isRotated = rotation == 90 || rotation == 270
 
@@ -257,9 +269,12 @@ private fun ScannerContent(navController: NavController) {
 
                                     barcodeScanner.process(inputImage)
                                         .addOnSuccessListener { barcodes ->
-                                            if (barcodes.isNotEmpty() && !navigated) {
+                                            if (barcodes.isNotEmpty() && isScanningRef.get()) {
                                                 val raw = barcodes.first().rawValue
-                                                if (!raw.isNullOrBlank()) scannedValue = raw
+                                                if (!raw.isNullOrBlank()) {
+                                                    isScanningRef.set(false)  // stop scanning — QR found
+                                                    scannedValue = raw
+                                                }
                                             }
                                         }
                                         .addOnCompleteListener {
@@ -450,7 +465,15 @@ private fun ScannerContent(navController: NavController) {
                 .width(36.dp).height(4.dp)
                 .background(borderS, RoundedCornerShape(2.dp)))
 
-            if (scannedValue == null) {
+            AnimatedContent(
+                targetState = scannedValue,
+                transitionSpec = {
+                    (fadeIn(tween(320)) + slideInVertically(tween(320, easing = FastOutSlowInEasing)) { it / 4 })
+                        .togetherWith(fadeOut(tween(200)) + slideOutVertically(tween(200)) { -it / 4 })
+                },
+                label = "scannerBottomContent"
+            ) { value ->
+            if (value == null) {
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -471,11 +494,11 @@ private fun ScannerContent(navController: NavController) {
                     }
                 }
             } else {
-                val displayId = remember(scannedValue) {
-                    scannedValue
-                        ?.substringAfter("\"boxId\":\"")
-                        ?.substringBefore("\"")
-                        ?: scannedValue ?: "—"
+                val displayId = remember(value) {
+                    val safe = value ?: ""
+                    safe.substringAfter("\"boxId\":\"")
+                        .substringBefore("\"")
+                        .ifBlank { safe }
                 }
 
                 Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
@@ -527,6 +550,7 @@ private fun ScannerContent(navController: NavController) {
                             fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
+            }
             }
         }
     }
