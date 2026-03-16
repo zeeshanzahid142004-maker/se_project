@@ -201,6 +201,9 @@ private fun ScannerContent(navController: NavController) {
                     scaleType = PreviewView.ScaleType.FILL_CENTER
                 }
                 val executor = ContextCompat.getMainExecutor(ctx)
+                // Dedicated background executor for image analysis so bitmap
+                // conversion and ML Kit scanning never run on the main thread.
+                val analysisExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
 
                 cameraProviderFuture.addListener({
@@ -214,7 +217,7 @@ private fun ScannerContent(navController: NavController) {
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                         .build()
                         .also { analysis ->
-                            analysis.setAnalyzer(executor) { imageProxy ->
+                            analysis.setAnalyzer(analysisExecutor) { imageProxy ->
                                 val mediaImage = imageProxy.image
                                 if (mediaImage != null && !navigated) {
                                     val rotation = imageProxy.imageInfo.rotationDegrees
