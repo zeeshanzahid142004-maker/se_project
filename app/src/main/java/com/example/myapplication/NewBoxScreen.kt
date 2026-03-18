@@ -251,7 +251,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
 
                                         // Already on analysisExecutor (background) — call detect directly
                                         try {
-                                            val results = detector.detect(cropped)
+                                            val results = detector!!.detect(cropped)
                                             Log.d(TAG, "Inference results: $results")
                                             mainExecutor.execute {
                                                 mergeDetections(detectedItems, results)
