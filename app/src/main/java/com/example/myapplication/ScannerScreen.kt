@@ -24,12 +24,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -194,6 +196,7 @@ private fun ScannerContent(navController: NavController) {
     var navigated     by remember { mutableStateOf(false) }
     var boxIsExisting by remember { mutableStateOf<Boolean?>(null) }
     var scanError     by remember { mutableStateOf<ScanErrorInfo?>(null) }
+    var isLookingUp   by remember { mutableStateOf(false) }
 
     // isScanningRef — stops the ML Kit analyzer once a QR is decoded.
     val isScanningRef = remember { AtomicBoolean(true) }
@@ -215,6 +218,7 @@ private fun ScannerContent(navController: NavController) {
                         scannedValue  = null
                         scanError     = null
                         boxIsExisting = null
+                        isLookingUp   = false
                         isScanningRef.set(true)
                     }
                 }
@@ -234,7 +238,8 @@ private fun ScannerContent(navController: NavController) {
     LaunchedEffect(scannedValue) {
         val raw = scannedValue ?: return@LaunchedEffect
         if (navigated) return@LaunchedEffect
-        navigated = true
+        navigated    = true
+        isLookingUp  = true
 
         scope.launch(Dispatchers.IO) {
             val isBoxScanFormat = raw.contains("\"boxId\":")
@@ -253,6 +258,7 @@ private fun ScannerContent(navController: NavController) {
                     val encodedLabel = android.net.Uri.encode(boxName)
                     withContext(Dispatchers.Main) {
                         boxIsExisting = true
+                        isLookingUp   = false
                         navController.navigate("qr_display_screen_remote/$encodedLabel")
                     }
                 } else {
@@ -272,6 +278,7 @@ private fun ScannerContent(navController: NavController) {
                         scanError    = errorInfo
                         scannedValue = null
                         navigated    = false
+                        isLookingUp  = false
                     }
                 }
             } catch (e: Exception) {
@@ -283,6 +290,7 @@ private fun ScannerContent(navController: NavController) {
                     )
                     scannedValue = null
                     navigated    = false
+                    isLookingUp  = false
                 }
             }
         }
@@ -763,6 +771,73 @@ private fun ScannerContent(navController: NavController) {
                         }
                     }
                 }
+            }
+        }
+
+        // ── Modern loader overlay while looking up in Supabase ─────────────
+        if (isLookingUp) {
+            ScannerLookupLoader()
+        }
+    }
+}
+
+@Composable
+private fun ScannerLookupLoader() {
+    val inf = rememberInfiniteTransition(label = "sll")
+    val angle by inf.animateFloat(
+        0f, 360f,
+        infiniteRepeatable(tween(900, easing = LinearEasing)),
+        label = "sllAngle"
+    )
+    val dotAlpha by inf.animateFloat(
+        0.3f, 1f,
+        infiniteRepeatable(tween(700, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "sllDot"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xE6080C10)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .drawBehind {
+                        drawCircle(tealS.copy(alpha = 0.10f), radius = size.minDimension * 0.48f)
+                        val sw = Stroke(
+                            width = 4.dp.toPx(),
+                            cap = StrokeCap.Round
+                        )
+                        drawArc(
+                            brush = Brush.sweepGradient(
+                                listOf(Color.Transparent, tealS)
+                            ),
+                            startAngle = angle,
+                            sweepAngle = 255f,
+                            useCenter = false,
+                            style = sw
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(14.dp)
+                        .alpha(dotAlpha)
+                        .background(tealS, CircleShape)
+                )
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Looking up box…", color = whiteS, fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
+                Text("Connecting to database", color = mutedS, fontSize = 12.sp)
             }
         }
     }

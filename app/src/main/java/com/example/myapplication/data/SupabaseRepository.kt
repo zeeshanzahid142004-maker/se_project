@@ -90,7 +90,7 @@ class SupabaseRepository {
         val boxes = try {
             Log.d(TAG_REPO, "  → querying 'boxes' for label='$boxLabel'…")
             boxesTable
-                .select(Columns.list("id", "box_label")) {
+                .select(Columns.list("id", "box_label", "created_at")) {
                     filter { eq("box_label", boxLabel) }
                 }
                 .decodeList<SupabaseBoxResponse>()
