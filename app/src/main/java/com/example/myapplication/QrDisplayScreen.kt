@@ -26,14 +26,20 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.example.myapplication.data.AppDatabase
+import com.example.myapplication.data.BoxRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private val tealQ   = Color(0xFF2DD4BF)
 private val redQ    = Color(0xFFE53E3E)
@@ -43,20 +49,44 @@ private val mutedQ  = Color(0xFF8B949E)
 private val whiteQ  = Color(0xFFF0F6FC)
 private val bgQ     = Color(0xFF0D1117)
 
+/**
+ * Display the QR code and item list for the box identified by [boxId].
+ *
+ * All data is loaded from the local Room database so the screen is fully
+ * dynamic — no hardcoded box names or item lists.
+ */
 @Composable
 fun QrDisplayScreen(
     navController: NavController,
-    boxId: String = "BOX-2026-0042",
-    contents: List<DetectedItem> = listOf(
-        DetectedItem("Shirt", 3),
-        DetectedItem("Pants", 1),
-    )
+    boxId: Long
 ) {
-    // ── Generate QR bitmap off main thread ─────────────────────────────────
+    val context    = LocalContext.current
+    val repository = remember { BoxRepository(AppDatabase.getInstance(context)) }
+
+    // ── Load box + items from DB ───────────────────────────────────────────
+    var boxName  by remember { mutableStateOf("") }
+    var contents by remember { mutableStateOf<List<DetectedItem>>(emptyList()) }
+    var createdAt by remember { mutableStateOf(0L) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(boxId) {
+        withContext(Dispatchers.IO) {
+            val box  = repository.getBoxById(boxId)
+            if (box != null) {
+                boxName   = box.name
+                createdAt = box.createdAt
+                contents  = repository.getItems(boxId)
+            }
+            isLoading = false
+        }
+    }
+
+    // ── Generate QR bitmap off main thread once both boxName and contents are ready
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    LaunchedEffect(boxId, contents) {
+    LaunchedEffect(boxName, contents) {
+        if (boxName.isBlank()) return@LaunchedEffect
         withContext(Dispatchers.Default) {
-            qrBitmap = QrUtils.generate(QrUtils.buildPayload(boxId, contents))
+            qrBitmap = QrUtils.generate(QrUtils.buildPayload(boxName, contents))
         }
     }
 
@@ -75,11 +105,24 @@ fun QrDisplayScreen(
         label = "shimmerAlpha"
     )
 
+    val formattedDate = remember(createdAt) {
+        if (createdAt == 0L) "—"
+        else SimpleDateFormat("yyyy-MM-dd  HH:mm", Locale.getDefault()).format(Date(createdAt))
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Brush.verticalGradient(0f to bgQ, 0.6f to bgQ, 1f to Color(0xFF0A1628)))
     ) {
+        if (isLoading) {
+            CircularProgressIndicator(
+                color = tealQ,
+                modifier = Modifier.align(Alignment.Center)
+            )
+            return@Box
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -113,7 +156,7 @@ fun QrDisplayScreen(
                     Text("BOX LOGGED", color = tealQ, fontSize = 10.sp,
                         fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
                 }
-                Text(boxId, color = mutedQ, fontSize = 11.sp, fontFamily = FontFamily.Monospace,
+                Text(boxName, color = mutedQ, fontSize = 11.sp, fontFamily = FontFamily.Monospace,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .background(surfQ)
@@ -155,10 +198,9 @@ fun QrDisplayScreen(
                 ) {
                     val bmp = qrBitmap
                     if (bmp != null) {
-                        // ✅ Real ZXing QR code
                         androidx.compose.foundation.Image(
                             bitmap = bmp.asImageBitmap(),
-                            contentDescription = "QR code for $boxId",
+                            contentDescription = "QR code for $boxName",
                             contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxSize()
                         )
@@ -191,20 +233,29 @@ fun QrDisplayScreen(
                         color = tealQ, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
                 Spacer(Modifier.height(14.dp))
-                contents.forEachIndexed { i, item ->
-                    if (i > 0) HorizontalDivider(color = borderQ,
-                        modifier = Modifier.padding(vertical = 8.dp))
-                    Row(modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(6.dp).background(tealQ, CircleShape))
-                            Spacer(Modifier.width(10.dp))
-                            Text(item.label, color = whiteQ, fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium)
+                if (contents.isEmpty()) {
+                    Text(
+                        "No items recorded for this box.",
+                        color = mutedQ, fontSize = 13.sp,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center
+                    )
+                } else {
+                    contents.forEachIndexed { i, item ->
+                        if (i > 0) HorizontalDivider(color = borderQ,
+                            modifier = Modifier.padding(vertical = 8.dp))
+                        Row(modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(6.dp).background(tealQ, CircleShape))
+                                Spacer(Modifier.width(10.dp))
+                                Text(item.label, color = whiteQ, fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium)
+                            }
+                            Text("×${item.count}", color = mutedQ, fontSize = 14.sp,
+                                fontFamily = FontFamily.Monospace)
                         }
-                        Text("×${item.count}", color = mutedQ, fontSize = 14.sp,
-                            fontFamily = FontFamily.Monospace)
                     }
                 }
                 Spacer(Modifier.height(14.dp))
@@ -213,7 +264,7 @@ fun QrDisplayScreen(
                 Row(modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Logged at", color = mutedQ, fontSize = 11.sp)
-                    Text("2026-03-13  14:25", color = mutedQ, fontSize = 11.sp,
+                    Text(formattedDate, color = mutedQ, fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace)
                 }
             }

@@ -48,6 +48,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.example.myapplication.data.AppDatabase
+import com.example.myapplication.data.BoxRepository
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
@@ -55,6 +57,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val TAG = "NewBoxScreen"
@@ -109,6 +112,8 @@ fun NewBoxScreen(navController: androidx.navigation.NavController) {
 private fun NewBoxContent(navController: androidx.navigation.NavController) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val scope          = rememberCoroutineScope()
+    val repository     = remember { BoxRepository(AppDatabase.getInstance(context)) }
 
     val detectedItems = remember { mutableStateListOf<DetectedItem>() }
     var showReviewSheet by remember { mutableStateOf(false) }
@@ -635,11 +640,18 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 items = detectedItems,
                 onConfirm = {
                     if (hasNavigatedRef.getAndSet(true)) return@ReviewSheet
-                    Log.d(TAG, "Review confirmed, navigating to qr_display_screen")
+                    Log.d(TAG, "Review confirmed, saving to DB then navigating")
                     stopScanningNow()
                     showReviewSheet = false
-                    navController.navigate("qr_display_screen") {
-                        launchSingleTop = true
+                    scope.launch(Dispatchers.IO) {
+                        // Generate a unique box name and persist box + items
+                        val existingNames = repository.getAllBoxNames().toSet()
+                        val boxName = BoxNameGenerator.generateUnique(existingNames)
+                        val boxId   = repository.createBox(boxName)
+                        repository.saveItems(boxId, detectedItems.toList())
+                        withContext(Dispatchers.Main) {
+                            navController.navigate("qr_display_screen/$boxId")
+                        }
                     }
                 },
                 onDismiss = {
