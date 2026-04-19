@@ -1,7 +1,11 @@
 package com.example.myapplication
 
 import android.Manifest
+import android.content.Context
 import android.media.MediaPlayer
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.util.Log
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -43,9 +47,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -173,13 +175,28 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         detector = d
     }
 
-    val haptic = LocalHapticFeedback.current
+    // Phase 2: Animatable for snap-in-then-pop bounding box scale
+    val boxScaleAnim = remember { Animatable(1.0f) }
 
-    // Sensory feedback: flash → haptic → audio when a new item is detected
+    // Sensory feedback: snap animation + double-pulse haptic + audio when a new item is detected
     LaunchedEffect(scanFlashActive) {
         if (!scanFlashActive) return@LaunchedEffect
-        // Haptic
-        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+
+        // Double-pulse haptic via vibrator for a stronger physical feel
+        val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(
+                VibrationEffect.createWaveform(
+                    longArrayOf(0L, 90L, 60L, 130L),
+                    intArrayOf(0, 240, 0, 210),
+                    -1
+                )
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(longArrayOf(0, 90, 60, 130), -1)
+        }
+
         // Audio — play the scan chime
         try {
             MediaPlayer.create(context, R.raw.crumble)?.apply {
@@ -189,8 +206,20 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         } catch (e: Exception) {
             Log.w(TAG, "Audio feedback failed: ${e.message}")
         }
-        // Hold flash for 420 ms then reset
-        delay(420)
+
+        // Snap inward (scale down) then pop outward with bounce, then settle
+        boxScaleAnim.snapTo(1.0f)
+        boxScaleAnim.animateTo(0.86f, animationSpec = tween(70, easing = FastOutSlowInEasing))
+        boxScaleAnim.animateTo(
+            1.10f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioLowBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            )
+        )
+        boxScaleAnim.animateTo(1.0f, animationSpec = tween(180))
+
+        // Reset flash flag after full animation completes
         scanFlashActive = false
     }
 
@@ -400,23 +429,20 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             animationSpec = infiniteRepeatable(tween(450, easing = FastOutSlowInEasing), RepeatMode.Reverse),
             label = "flash"
         )
-        // Flash color: green/white during scan success, red otherwise
+        // Flash color: neon green during scan success, red otherwise
         val successColor = Color(0xFF00E676)
         val boxColor by animateColorAsState(
             targetValue = if (scanFlashActive) successColor else redN,
-            animationSpec = tween(durationMillis = 120),
+            animationSpec = tween(durationMillis = 100),
             label = "boxColor"
         )
         val boxStrokeWidth by animateFloatAsState(
-            targetValue = if (scanFlashActive) 5.0f else 2.4f,
-            animationSpec = tween(durationMillis = 120),
+            targetValue = if (scanFlashActive) 5.5f else 2.4f,
+            animationSpec = tween(durationMillis = 100),
             label = "boxStroke"
         )
-        val boxScale by animateFloatAsState(
-            targetValue = if (scanFlashActive) 1.05f else 1.0f,
-            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
-            label = "boxScale"
-        )
+        // Phase 2: use Animatable-driven scale for the snap-in-pop animation
+        val boxScale = boxScaleAnim.value
 
         if (detectedItems.isNotEmpty()) {
             Box(
@@ -430,6 +456,20 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                         val cLen = 30.dp.toPx()
                         val alpha = if (scanFlashActive) 1f else flashAnim
                         val col = boxColor.copy(alpha = alpha)
+
+                        // Glow pass (wide, soft stroke behind) during success flash
+                        if (scanFlashActive) {
+                            val glowCol = boxColor.copy(alpha = 0.35f)
+                            val gsw = boxStrokeWidth * 3.8f
+                            drawLine(glowCol, Offset(0f, cLen), Offset(0f, 0f), gsw)
+                            drawLine(glowCol, Offset(0f, 0f), Offset(cLen, 0f), gsw)
+                            drawLine(glowCol, Offset(size.width, cLen), Offset(size.width, 0f), gsw)
+                            drawLine(glowCol, Offset(size.width - cLen, 0f), Offset(size.width, 0f), gsw)
+                            drawLine(glowCol, Offset(0f, size.height - cLen), Offset(0f, size.height), gsw)
+                            drawLine(glowCol, Offset(0f, size.height), Offset(cLen, size.height), gsw)
+                            drawLine(glowCol, Offset(size.width, size.height - cLen), Offset(size.width, size.height), gsw)
+                            drawLine(glowCol, Offset(size.width - cLen, size.height), Offset(size.width, size.height), gsw)
+                        }
 
                         drawLine(col, Offset(0f, cLen), Offset(0f, 0f), boxStrokeWidth)
                         drawLine(col, Offset(0f, 0f), Offset(cLen, 0f), boxStrokeWidth)
@@ -554,7 +594,10 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 .clip(RoundedCornerShape(20.dp))
                 .background(orangeN.copy(alpha = 0.18f))
                 .border(1.dp, orangeN.copy(alpha = 0.55f), RoundedCornerShape(20.dp))
-                .clickable(remember { MutableInteractionSource() }, null) { showComplaintSheet = true }
+                .clickable(remember { MutableInteractionSource() }, null) {
+                    isScanningRef.set(false)  // Phase 3: pause detection when report sheet opens
+                    showComplaintSheet = true
+                }
                 .padding(horizontal = 11.dp, vertical = 6.dp)
         ) {
             Icon(Icons.Default.Warning, null, tint = orangeN, modifier = Modifier.size(11.dp))
@@ -707,7 +750,73 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 targetOffsetY = { it }
             ) + fadeOut(animationSpec = tween(220, easing = FastOutSlowInEasing))
         ) {
-            ComplaintSheet(onDismiss = { showComplaintSheet = false })
+            ComplaintSheet(onDismiss = {
+                showComplaintSheet = false
+                isScanningRef.set(true)   // Phase 3: resume detection when sheet closes
+            })
+        }
+
+        // Phase 1: Shimmer loading overlay — shown until camera + YOLO detector are both ready
+        val isUiReady = cameraReady && detector != null
+        val loadingAlpha by animateFloatAsState(
+            targetValue = if (isUiReady) 0f else 1f,
+            animationSpec = tween(durationMillis = 450),
+            label = "loadingAlpha"
+        )
+        if (loadingAlpha > 0f) {
+            val shimmerInf = rememberInfiniteTransition(label = "shimmer")
+            val shimmerOffset by shimmerInf.animateFloat(
+                initialValue = -1f,
+                targetValue = 2f,
+                animationSpec = infiniteRepeatable(tween(1300, easing = LinearEasing)),
+                label = "shimmerOffset"
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .alpha(loadingAlpha)
+                    .background(Color(0xFF080C10))
+                    .drawBehind {
+                        // Animated shimmer streak
+                        val shimmerBrush = Brush.horizontalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color(0xFF1E2A3A).copy(alpha = 0.75f),
+                                Color.Transparent,
+                            ),
+                            startX = shimmerOffset * size.width,
+                            endX = (shimmerOffset + 0.55f) * size.width,
+                        )
+                        drawRect(shimmerBrush)
+
+                        // Skeleton camera viewport placeholder
+                        val padH = 28.dp.toPx()
+                        val padT = topInsetDp.toPx() + 16.dp.toPx()
+                        val padB = bottomInsetDp.toPx() + 16.dp.toPx()
+                        val skelColor = Color(0xFF1C2736)
+                        drawRect(
+                            color = skelColor,
+                            topLeft = Offset(padH, padT),
+                            size = Size(size.width - padH * 2, size.height - padT - padB),
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(
+                        color = tealN,
+                        modifier = Modifier.size(28.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        "Initializing scanner…",
+                        color = mutedN,
+                        fontSize = 13.sp,
+                        letterSpacing = 0.3.sp
+                    )
+                }
+            }
         }
 
         // ── Save-error dialog (shown when Supabase write fails) ─────────────
