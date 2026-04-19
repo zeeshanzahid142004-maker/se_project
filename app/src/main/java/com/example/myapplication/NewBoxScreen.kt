@@ -123,9 +123,16 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     var showReviewSheet by remember { mutableStateOf(false) }
     var showComplaintSheet by remember { mutableStateOf(false) }
     var cameraReady by remember { mutableStateOf(false) }
+    var useFrontCamera by remember { mutableStateOf(false) }
 
     val isScanningRef = remember { AtomicBoolean(true) }
     val hasNavigatedRef = remember { AtomicBoolean(false) }
+
+    // Reset camera state when flipping
+    LaunchedEffect(useFrontCamera) {
+        isScanningRef.set(true)
+        cameraReady = false
+    }
 
     var detector by remember { mutableStateOf<YoloDetector?>(null) }
 
@@ -191,6 +198,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         val bottomInsetDp = 280.dp
         val camColor = if (cameraReady) tealN else redN
 
+        key(useFrontCamera) {
         AndroidView(
             factory = { ctx ->
                 Log.d(TAG, "AndroidView: creating PreviewView")
@@ -311,7 +319,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                         provider.unbindAll()
                         provider.bindToLifecycle(
                             lifecycleOwner,
-                            CameraSelector.DEFAULT_BACK_CAMERA,
+                            if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA,
                             preview,
                             analysis
                         )
@@ -327,6 +335,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             },
             modifier = Modifier.fillMaxSize()
         )
+        } // end key(useFrontCamera)
 
         Box(
             modifier = Modifier
@@ -600,6 +609,29 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             }
 
             Spacer(Modifier.height(14.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.End
+            ) {
+                androidx.compose.material3.IconButton(
+                    onClick = { useFrontCamera = !useFrontCamera },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .background(surfAltN, androidx.compose.foundation.shape.CircleShape)
+                        .border(1.dp, borderN, androidx.compose.foundation.shape.CircleShape)
+                ) {
+                    Text(
+                        text = if (useFrontCamera) "↩" else "↪",
+                        color = whiteN,
+                        fontSize = 18.sp
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
 
             Button(
                 onClick = {

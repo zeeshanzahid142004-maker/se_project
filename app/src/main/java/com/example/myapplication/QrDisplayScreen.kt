@@ -41,6 +41,10 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import android.content.Intent
+import androidx.core.content.FileProvider
+import java.io.File
+import java.io.FileOutputStream
 
 private val tealQ   = Color(0xFF2DD4BF)
 private val redQ    = Color(0xFFE53E3E)
@@ -273,7 +277,24 @@ fun QrDisplayScreen(
             Column(modifier = Modifier.fillMaxWidth().alpha(fadeIn),
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
-                    onClick = { /* TODO: share qrBitmap via Intent */ },
+                    onClick = {
+                        val bmp = qrBitmap ?: return@Button
+                        val cachePath = File(context.cacheDir, "shared_qr")
+                        cachePath.mkdirs()
+                        val file = File(cachePath, "qr_${boxName}.png")
+                        try {
+                            FileOutputStream(file).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                            val contentUri = FileProvider.getUriForFile(
+                                context, "${context.packageName}.fileprovider", file
+                            )
+                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "image/png"
+                                putExtra(Intent.EXTRA_STREAM, contentUri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(Intent.createChooser(shareIntent, "Share QR Code via"))
+                        } catch (_: Exception) {}
+                    },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = redQ)
