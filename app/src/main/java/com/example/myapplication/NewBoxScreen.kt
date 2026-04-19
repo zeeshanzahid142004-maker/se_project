@@ -144,6 +144,8 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     var useFrontCamera by remember { mutableStateOf(false) }
     // Triggers the flash/haptic/audio feedback on successful scan
     var scanFlashActive by remember { mutableStateOf(false) }
+    // True until the camera and AI model are both ready on first entry
+    var showInitLoader by remember { mutableStateOf(true) }
 
     val isScanningRef = remember { AtomicBoolean(true) }
     val hasNavigatedRef = remember { AtomicBoolean(false) }
@@ -214,6 +216,13 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             }
         }
         detector = d
+    }
+
+    // Dismiss the init loader once both the camera and AI model are ready
+    LaunchedEffect(cameraReady, detector) {
+        if (cameraReady && detector != null && showInitLoader) {
+            showInitLoader = false
+        }
     }
 
     // Phase 2: Animatable for snap-in-then-pop bounding box scale
@@ -847,9 +856,20 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             )
         }
 
-        // ── Full-screen modern loader while saving ─────────────────────────
+        // ── Full-screen loader while saving to database ────────────────────
         if (isSaving) {
-            ModernSavingLoader(message = "Creating box…")
+            FullScreenLoader(
+                title    = "Creating box…",
+                subtitle = "Saving to database"
+            )
+        }
+
+        // ── Init loader — shown until camera + AI model are both ready ─────
+        if (showInitLoader && !isSaving) {
+            FullScreenLoader(
+                title    = "Initializing Scanner",
+                subtitle = "Loading camera & AI model…"
+            )
         }
     }
 }
@@ -1194,82 +1214,4 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
     }
 }
 
-// ── Modern full-screen saving loader ─────────────────────────────────────────
 
-/**
- * Full-screen dark overlay with an animated ring spinner and a short status message.
- * Shown over the camera screen while a box is being saved to Supabase / Room.
- */
-@Composable
-private fun ModernSavingLoader(message: String = "Saving…") {
-    val inf = rememberInfiniteTransition(label = "msl")
-    val angle by inf.animateFloat(
-        0f, 360f,
-        infiniteRepeatable(tween(900, easing = LinearEasing)),
-        label = "mslAngle"
-    )
-    val dotAlpha by inf.animateFloat(
-        0.3f, 1f,
-        infiniteRepeatable(tween(700, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "mslDot"
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xE6080C10))   // ~90 % opaque over camera
-            .clickable(remember { MutableInteractionSource() }, null) {},  // consume touches
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp)
-        ) {
-            // Animated ring
-            Box(
-                modifier = Modifier
-                    .size(72.dp)
-                    .drawBehind {
-                        // Soft glow behind the ring
-                        drawCircle(tealN.copy(alpha = 0.10f), radius = size.minDimension * 0.48f)
-                        // Arc spinner
-                        val stroke = Stroke(
-                            width = 4.dp.toPx(),
-                            cap = StrokeCap.Round
-                        )
-                        drawArc(
-                            brush = Brush.sweepGradient(listOf(Color.Transparent, tealN)),
-                            startAngle = angle,
-                            sweepAngle = 255f,
-                            useCenter = false,
-                            style = stroke
-                        )
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                // Pulsing centre dot
-                Box(
-                    modifier = Modifier
-                        .size(14.dp)
-                        .alpha(dotAlpha)
-                        .background(tealN, CircleShape)
-                )
-            }
-
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    message,
-                    color = whiteN,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Please wait…",
-                    color = mutedN,
-                    fontSize = 12.sp
-                )
-            }
-        }
-    }
-}
