@@ -1,7 +1,6 @@
 package com.example.myapplication
 
 import android.Manifest
-import android.content.pm.PackageManager
 import android.util.Log
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -25,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -38,8 +36,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
@@ -55,6 +53,8 @@ import com.example.myapplication.data.BoxRepository
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -62,18 +62,15 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "NewBoxScreen"
 
-private val tealN    = Color(0xFF2DD4BF)
-private val redN     = Color(0xFFE53E3E)
-private val orangeN  = Color(0xFFF97316)
-private val surfN    = Color(0xFF161B22)
+private val tealN = Color(0xFF2DD4BF)
+private val redN = Color(0xFFE53E3E)
+private val orangeN = Color(0xFFF97316)
+private val surfN = Color(0xFF161B22)
 private val surfAltN = Color(0xFF1C2333)
-private val borderN  = Color(0xFF30363D)
-private val mutedN   = Color(0xFF8B949E)
-private val whiteN   = Color(0xFFF0F6FC)
+private val borderN = Color(0xFF30363D)
+private val mutedN = Color(0xFF8B949E)
+private val whiteN = Color(0xFFF0F6FC)
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  NewBoxScreen
-// ─────────────────────────────────────────────────────────────────────────────
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun NewBoxScreen(navController: androidx.navigation.NavController) {
@@ -89,9 +86,10 @@ fun NewBoxScreen(navController: androidx.navigation.NavController) {
     }
 
     if (!cameraPermission.status.isGranted) {
-        // Show a simple permission screen instead of crashing
         Box(
-            modifier = Modifier.fillMaxSize().background(Color(0xFF080C10)),
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF080C10)),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -109,31 +107,41 @@ fun NewBoxScreen(navController: androidx.navigation.NavController) {
     NewBoxContent(navController = navController)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  NewBoxContent — only reached when camera permission is granted
-// ─────────────────────────────────────────────────────────────────────────────
 @androidx.annotation.OptIn(ExperimentalGetImage::class)
 @Composable
 private fun NewBoxContent(navController: androidx.navigation.NavController) {
-
-    val context        = LocalContext.current
+    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope          = rememberCoroutineScope()
     val repository     = remember { BoxRepository(AppDatabase.getInstance(context)) }
 
     val detectedItems = remember { mutableStateListOf<DetectedItem>() }
-    var showReviewSheet    by remember { mutableStateOf(false) }
+    var showReviewSheet by remember { mutableStateOf(false) }
     var showComplaintSheet by remember { mutableStateOf(false) }
-    var cameraReady        by remember { mutableStateOf(false) }
+    var cameraReady by remember { mutableStateOf(false) }
 
-    // ── Scanning guard — AtomicBoolean so the background analysis thread
-    //    can read it without Compose snapshot concerns.
     val isScanningRef = remember { AtomicBoolean(true) }
-    DisposableEffect(Unit) { onDispose { isScanningRef.set(false) } }
+    val hasNavigatedRef = remember { AtomicBoolean(false) }
 
-    // ── Load YoloDetector on a background thread so it does not block the
-    //    UI during the screen-entry transition.
     var detector by remember { mutableStateOf<YoloDetector?>(null) }
+
+    var cameraProviderRef by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+    var imageAnalysisRef by remember { mutableStateOf<ImageAnalysis?>(null) }
+    var analysisExecutorRef by remember { mutableStateOf<ExecutorService?>(null) }
+
+    var lastInferenceMs by remember { mutableStateOf(0L) }
+    val previewViewRef = remember { mutableStateOf<PreviewView?>(null) }
+
+    fun stopScanningNow() {
+        isScanningRef.set(false)
+        try { imageAnalysisRef?.clearAnalyzer() } catch (_: Exception) {}
+        try { cameraProviderRef?.unbindAll() } catch (_: Exception) {}
+        try { analysisExecutorRef?.shutdownNow() } catch (_: Exception) {}
+        imageAnalysisRef = null
+        analysisExecutorRef = null
+        cameraReady = false
+    }
+
     LaunchedEffect(Unit) {
         val d = withContext(Dispatchers.Default) {
             try {
@@ -146,30 +154,39 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         }
         detector = d
     }
-    DisposableEffect(Unit) { onDispose { detector?.close() } }
 
-    var lastInferenceMs by remember { mutableStateOf(0L) }
-    val previewViewRef  = remember { mutableStateOf<PreviewView?>(null) }
+    DisposableEffect(Unit) {
+        onDispose {
+            stopScanningNow()
+            try { detector?.close() } catch (_: Exception) {}
+        }
+    }
 
     val inf = rememberInfiniteTransition(label = "anim")
     val scanY by inf.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(2000, easing = LinearEasing), RepeatMode.Reverse),
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            tween(2000, easing = LinearEasing),
+            RepeatMode.Reverse
+        ),
         label = "scanY"
     )
     val pulse by inf.animateFloat(
-        initialValue = 0.1f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        initialValue = 0.1f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            tween(900, easing = FastOutSlowInEasing),
+            RepeatMode.Reverse
+        ),
         label = "pulse"
     )
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF080C10))) {
-
-        val topInsetDp    = 68.dp
+        val topInsetDp = 68.dp
         val bottomInsetDp = 280.dp
         val camColor = if (cameraReady) tealN else redN
 
-        // ── CameraX Preview ───────────────────────────────────────────────
         AndroidView(
             factory = { ctx ->
                 Log.d(TAG, "AndroidView: creating PreviewView")
@@ -179,13 +196,14 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 previewViewRef.value = pv
 
                 val mainExecutor = ContextCompat.getMainExecutor(ctx)
-                // Dedicated single-thread executor for image analysis — never blocks UI
-                val analysisExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+                val analysisExecutor = Executors.newSingleThreadExecutor()
+                analysisExecutorRef = analysisExecutor
                 val future = ProcessCameraProvider.getInstance(ctx)
 
                 future.addListener({
                     try {
                         val provider = future.get()
+                        cameraProviderRef = provider
                         Log.d(TAG, "CameraProvider: obtained")
 
                         val preview = Preview.Builder().build().also {
@@ -196,69 +214,80 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                             .build()
                             .also { ia ->
+                                imageAnalysisRef = ia
                                 ia.setAnalyzer(analysisExecutor) { imageProxy ->
-
-                                    // Stop immediately if finalized or screen exited
                                     if (!isScanningRef.get()) {
-                                        imageProxy.close(); return@setAnalyzer
+                                        imageProxy.close()
+                                        return@setAnalyzer
                                     }
 
-                                    // Throttle to every 800ms
                                     val now = System.currentTimeMillis()
                                     if (now - lastInferenceMs < 800L) {
-                                        imageProxy.close(); return@setAnalyzer
+                                        imageProxy.close()
+                                        return@setAnalyzer
                                     }
                                     lastInferenceMs = now
 
                                     val mediaImage = imageProxy.image
                                     if (mediaImage == null) {
                                         Log.w(TAG, "Analyzer: mediaImage is null")
-                                        imageProxy.close(); return@setAnalyzer
+                                        imageProxy.close()
+                                        return@setAnalyzer
                                     }
 
-                                    // If no detector (tflite missing), just show camera
-                                    if (detector == null) {
+                                    val currentDetector = detector
+                                    if (currentDetector == null) {
                                         Log.w(TAG, "Analyzer: detector is null, skipping inference")
-                                        imageProxy.close(); return@setAnalyzer
+                                        imageProxy.close()
+                                        return@setAnalyzer
                                     }
 
-                                    val rotation  = imageProxy.imageInfo.rotationDegrees
+                                    val rotation = imageProxy.imageInfo.rotationDegrees
                                     val isRotated = rotation == 90 || rotation == 270
                                     val imgW = if (isRotated) mediaImage.height else mediaImage.width
-                                    val imgH = if (isRotated) mediaImage.width  else mediaImage.height
+                                    val imgH = if (isRotated) mediaImage.width else mediaImage.height
 
-                                    val pv2   = previewViewRef.value
-                                    val viewW = pv2?.width?.takeIf  { it > 0 } ?: imgW
+                                    val pv2 = previewViewRef.value
+                                    val viewW = pv2?.width?.takeIf { it > 0 } ?: imgW
                                     val viewH = pv2?.height?.takeIf { it > 0 } ?: imgH
 
                                     val density = ctx.resources.displayMetrics.density
-                                    val hPadPx  = 28f * density
-                                    val tPadPx  = 120f * density  // top bar height
-                                    val bPadPx  = 280f * density  // bottom sheet height — key fix
+                                    val hPadPx = 28f * density
+                                    val tPadPx = 120f * density
+                                    val bPadPx = 280f * density
 
-                                    val cropW = ((viewW - 2 * hPadPx) * (imgW.toFloat() / viewW)).toInt().coerceIn(1, imgW)
-                                    val cropH = ((viewH - tPadPx - bPadPx) * (imgH.toFloat() / viewH)).toInt().coerceIn(1, imgH)
+                                    val cropW = ((viewW - 2 * hPadPx) * (imgW.toFloat() / viewW))
+                                        .toInt().coerceIn(1, imgW)
+                                    val cropH = ((viewH - tPadPx - bPadPx) * (imgH.toFloat() / viewH))
+                                        .toInt().coerceIn(1, imgH)
                                     val cropX = ((imgW - cropW) / 2).coerceAtLeast(0)
                                     val cropY = (tPadPx * (imgH.toFloat() / viewH)).toInt().coerceAtLeast(0)
 
                                     Log.d(TAG, "Crop: imgW=$imgW imgH=$imgH cropX=$cropX cropY=$cropY cropW=$cropW cropH=$cropH")
 
                                     try {
-                                        val full    = imageProxy.toBitmap()
-                                        val matrix  = android.graphics.Matrix().apply { postRotate(rotation.toFloat()) }
-                                        val rotated = android.graphics.Bitmap.createBitmap(full, 0, 0, full.width, full.height, matrix, true)
-                                        val safeCropW = cropW.coerceAtMost(rotated.width  - cropX).coerceAtLeast(1)
+                                        val full = imageProxy.toBitmap()
+                                        val matrix = android.graphics.Matrix().apply {
+                                            postRotate(rotation.toFloat())
+                                        }
+                                        val rotated = android.graphics.Bitmap.createBitmap(
+                                            full, 0, 0, full.width, full.height, matrix, true
+                                        )
+                                        val safeCropW = cropW.coerceAtMost(rotated.width - cropX).coerceAtLeast(1)
                                         val safeCropH = cropH.coerceAtMost(rotated.height - cropY).coerceAtLeast(1)
-                                        val cropped = android.graphics.Bitmap.createBitmap(rotated, cropX, cropY, safeCropW, safeCropH)
+                                        val cropped = android.graphics.Bitmap.createBitmap(
+                                            rotated, cropX, cropY, safeCropW, safeCropH
+                                        )
 
                                         Log.d(TAG, "Bitmap ready: ${cropped.width}x${cropped.height}, running inference")
 
-                                        // Already on analysisExecutor (background) — call detect directly
                                         try {
-                                            val results = detector!!.detect(cropped)
+                                            val results = currentDetector.detect(cropped)
                                             Log.d(TAG, "Inference results: $results")
                                             mainExecutor.execute {
-                                                mergeDetections(detectedItems, results)
+                                                if (isScanningRef.get()) {
+                                                    mergeDetections(detectedItems, results)
+                                                }
                                             }
                                         } catch (e: Exception) {
                                             Log.e(TAG, "Inference failed: ${e.message}", e)
@@ -266,10 +295,10 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                             cropped.recycle()
                                             rotated.recycle()
                                             full.recycle()
-                                            imageProxy.close()
                                         }
                                     } catch (e: Exception) {
                                         Log.e(TAG, "Bitmap crop failed: ${e.message}", e)
+                                    } finally {
                                         imageProxy.close()
                                     }
                                 }
@@ -279,64 +308,55 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                         provider.bindToLifecycle(
                             lifecycleOwner,
                             CameraSelector.DEFAULT_BACK_CAMERA,
-                            preview, analysis
+                            preview,
+                            analysis
                         )
                         Log.d(TAG, "Camera bound to lifecycle OK")
                         mainExecutor.execute { cameraReady = true }
-
                     } catch (e: Exception) {
                         Log.e(TAG, "CameraProvider setup failed: ${e.message}", e)
                         mainExecutor.execute { cameraReady = false }
                     }
                 }, mainExecutor)
+
                 pv
             },
             modifier = Modifier.fillMaxSize()
         )
 
-        // ── Vignette silhouette with rounded corners on the clear zone ────
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .drawBehind {
-                    val t    = topInsetDp.toPx()
-                    val b    = bottomInsetDp.toPx()
-                    val cr   = 20.dp.toPx()   // corner radius of the clear window
+                    val t = topInsetDp.toPx()
+                    val b = bottomInsetDp.toPx()
+                    val cr = 20.dp.toPx()
                     val dark = androidx.compose.ui.graphics.Color(0xCC000000)
 
-                    // top strip
                     drawRect(dark, Offset(0f, 0f), Size(size.width, t))
-                    // bottom strip
                     drawRect(dark, Offset(0f, size.height - b), Size(size.width, b))
 
-                    // round the top-left corner of the clear zone
                     drawRect(dark, Offset(0f, t), Size(cr, cr))
-                    drawCircle(androidx.compose.ui.graphics.Color.Transparent, cr,
-                        Offset(cr, t + cr), blendMode = BlendMode.Clear)
+                    drawCircle(androidx.compose.ui.graphics.Color.Transparent, cr, Offset(cr, t + cr), blendMode = BlendMode.Clear)
 
-                    // round the top-right corner
                     drawRect(dark, Offset(size.width - cr, t), Size(cr, cr))
-                    drawCircle(androidx.compose.ui.graphics.Color.Transparent, cr,
-                        Offset(size.width - cr, t + cr), blendMode = BlendMode.Clear)
+                    drawCircle(androidx.compose.ui.graphics.Color.Transparent, cr, Offset(size.width - cr, t + cr), blendMode = BlendMode.Clear)
 
-                    // round the bottom-left corner
                     drawRect(dark, Offset(0f, size.height - b - cr), Size(cr, cr))
-                    drawCircle(androidx.compose.ui.graphics.Color.Transparent, cr,
-                        Offset(cr, size.height - b - cr), blendMode = BlendMode.Clear)
+                    drawCircle(androidx.compose.ui.graphics.Color.Transparent, cr, Offset(cr, size.height - b - cr), blendMode = BlendMode.Clear)
 
-                    // round the bottom-right corner
                     drawRect(dark, Offset(size.width - cr, size.height - b - cr), Size(cr, cr))
-                    drawCircle(androidx.compose.ui.graphics.Color.Transparent, cr,
-                        Offset(size.width - cr, size.height - b - cr), blendMode = BlendMode.Clear)
+                    drawCircle(androidx.compose.ui.graphics.Color.Transparent, cr, Offset(size.width - cr, size.height - b - cr), blendMode = BlendMode.Clear)
                 }
         )
 
-        // ── Detection wireframe — RED, tight centred box ──────────────────
         val flashAnim by rememberInfiniteTransition(label = "flash").animateFloat(
-            initialValue = 0.4f, targetValue = 1f,
+            initialValue = 0.4f,
+            targetValue = 1f,
             animationSpec = infiniteRepeatable(tween(450, easing = FastOutSlowInEasing), RepeatMode.Reverse),
             label = "flash"
         )
+
         if (detectedItems.isNotEmpty()) {
             Box(
                 modifier = Modifier
@@ -346,9 +366,9 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                     .size(210.dp, 190.dp)
                     .drawBehind {
                         val cLen = 30.dp.toPx()
-                        val sw   = 2.4f
-                        val col  = redN.copy(alpha = flashAnim)
-                        // sharp corner brackets — red
+                        val sw = 2.4f
+                        val col = redN.copy(alpha = flashAnim)
+
                         drawLine(col, Offset(0f, cLen), Offset(0f, 0f), sw)
                         drawLine(col, Offset(0f, 0f), Offset(cLen, 0f), sw)
                         drawLine(col, Offset(size.width, cLen), Offset(size.width, 0f), sw)
@@ -357,12 +377,11 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                         drawLine(col, Offset(0f, size.height), Offset(cLen, size.height), sw)
                         drawLine(col, Offset(size.width, size.height - cLen), Offset(size.width, size.height), sw)
                         drawLine(col, Offset(size.width - cLen, size.height), Offset(size.width, size.height), sw)
-                        // centre dot
-                        drawCircle(redN, 3.dp.toPx(),
-                            Offset(size.width / 2, size.height / 2), alpha = flashAnim)
+
+                        drawCircle(redN, 3.dp.toPx(), Offset(size.width / 2, size.height / 2), alpha = flashAnim)
                     }
             )
-            // Label badge — white text, dark pill
+
             Text(
                 "● ${detectedItems.last().label.uppercase()}",
                 color = Color.White.copy(alpha = flashAnim),
@@ -377,46 +396,50 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             )
         }
 
-        // ── Viewfinder brackets — edge to edge ────────────────────────────
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(start = 4.dp, end = 4.dp, top = topInsetDp, bottom = bottomInsetDp)
                 .drawBehind {
                     val bLen = 42.dp.toPx()
-                    val sw   = 2.6f
-                    val r    = 12.dp.toPx()
-                    val col  = camColor.copy(alpha = pulse)
+                    val sw = 2.6f
+                    val r = 12.dp.toPx()
+                    val col = camColor.copy(alpha = pulse)
 
                     drawLine(col, Offset(0f, r + bLen), Offset(0f, r), sw)
-                    drawArc(col, 180f, 90f, false, Offset(0f, 0f), Size(r*2,r*2), style = Stroke(sw))
+                    drawArc(col, 180f, 90f, false, Offset(0f, 0f), Size(r * 2, r * 2), style = Stroke(sw))
                     drawLine(col, Offset(r, 0f), Offset(r + bLen, 0f), sw)
 
                     drawLine(col, Offset(size.width, r + bLen), Offset(size.width, r), sw)
-                    drawArc(col, 270f, 90f, false, Offset(size.width - r*2, 0f), Size(r*2,r*2), style = Stroke(sw))
+                    drawArc(col, 270f, 90f, false, Offset(size.width - r * 2, 0f), Size(r * 2, r * 2), style = Stroke(sw))
                     drawLine(col, Offset(size.width - r, 0f), Offset(size.width - r - bLen, 0f), sw)
 
                     drawLine(col, Offset(0f, size.height - r - bLen), Offset(0f, size.height - r), sw)
-                    drawArc(col, 90f, 90f, false, Offset(0f, size.height - r*2), Size(r*2,r*2), style = Stroke(sw))
+                    drawArc(col, 90f, 90f, false, Offset(0f, size.height - r * 2), Size(r * 2, r * 2), style = Stroke(sw))
                     drawLine(col, Offset(r, size.height), Offset(r + bLen, size.height), sw)
 
                     drawLine(col, Offset(size.width, size.height - r - bLen), Offset(size.width, size.height - r), sw)
-                    drawArc(col, 0f, 90f, false, Offset(size.width - r*2, size.height - r*2), Size(r*2,r*2), style = Stroke(sw))
+                    drawArc(col, 0f, 90f, false, Offset(size.width - r * 2, size.height - r * 2), Size(r * 2, r * 2), style = Stroke(sw))
                     drawLine(col, Offset(size.width - r, size.height), Offset(size.width - r - bLen, size.height), sw)
 
                     val ly = size.height * scanY
                     drawLine(
-                        Brush.horizontalGradient(listOf(Color.Transparent, camColor.copy(0.8f), camColor, camColor.copy(0.8f), Color.Transparent)),
-                        Offset(0f, ly), Offset(size.width, ly), 1.6f
+                        Brush.horizontalGradient(
+                            listOf(Color.Transparent, camColor.copy(0.8f), camColor, camColor.copy(0.8f), Color.Transparent)
+                        ),
+                        Offset(0f, ly),
+                        Offset(size.width, ly),
+                        1.6f
                     )
                     drawLine(
                         Brush.horizontalGradient(listOf(Color.Transparent, camColor.copy(0.22f), Color.Transparent)),
-                        Offset(0f, ly), Offset(size.width, ly), 10f
+                        Offset(0f, ly),
+                        Offset(size.width, ly),
+                        10f
                     )
                 }
         )
 
-        // Hint text
         Text(
             "Hold steady · one item at a time",
             color = whiteN.copy(alpha = 0.7f),
@@ -429,26 +452,26 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 .padding(horizontal = 10.dp, vertical = 4.dp)
         )
 
-        // ── In-zone UI — all overlays sit INSIDE the scan window ─────────
-
-        // Back button — top-left, just inside the scan zone
         IconButton(
-            onClick = { navController.popBackStack() },
+            onClick = {
+                stopScanningNow()
+                navController.popBackStack()
+            },
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
                 .padding(start = 10.dp, bottom = 15.dp)
                 .size(30.dp)
-
-
-
         ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = whiteN, modifier = Modifier.size(30.dp))
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Back",
+                tint = whiteN,
+                modifier = Modifier.size(30.dp)
+            )
         }
 
-        // Pulse dot — top-left inside zone, next to back button
         Box(
-
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
@@ -461,7 +484,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 }
         )
 
-        // REPORT pill — bottom-right of scan zone, just above bottom sheet
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
@@ -475,11 +497,15 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         ) {
             Icon(Icons.Default.Warning, null, tint = orangeN, modifier = Modifier.size(11.dp))
             Spacer(Modifier.width(4.dp))
-            Text("REPORT", color = orangeN, fontSize = 8.sp,
-                fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+            Text(
+                "REPORT",
+                color = orangeN,
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.2.sp
+            )
         }
 
-        // ── Bottom sheet ──────────────────────────────────────────────────
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -492,21 +518,33 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
                     .padding(top = 12.dp, bottom = 12.dp)
-                    .width(36.dp).height(4.dp)
+                    .width(36.dp)
+                    .height(4.dp)
                     .background(borderN, RoundedCornerShape(2.dp))
             )
-            Text("Point camera at items", color = mutedN, fontSize = 11.sp,
-                modifier = Modifier.align(Alignment.CenterHorizontally))
+            Text(
+                "Point camera at items",
+                color = mutedN,
+                fontSize = 11.sp,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
 
             Spacer(Modifier.height(10.dp))
 
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("DETECTED ITEMS", color = mutedN, fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                Text(
+                    "DETECTED ITEMS",
+                    color = mutedN,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.5.sp
+                )
                 val total: Int = detectedItems.sumOf { it.count }
                 Text("$total total", color = tealN, fontSize = 11.sp, fontWeight = FontWeight.Medium)
             }
@@ -516,13 +554,14 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(102.dp)   // ~1.4 items — clips second card to hint scrollability
+                    .height(102.dp)
                     .padding(horizontal = 20.dp)
             ) {
                 if (detectedItems.isEmpty()) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth().height(64.dp)
+                            .fillMaxWidth()
+                            .height(64.dp)
                             .border(1.dp, borderN, RoundedCornerShape(12.dp)),
                         contentAlignment = Alignment.Center
                     ) {
@@ -533,7 +572,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                         modifier = Modifier.verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        detectedItems.reversed().forEach { item: DetectedItem ->
+                        detectedItems.reversed().forEach { item ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -561,7 +600,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             Button(
                 onClick = {
                     Log.d(TAG, "Generate QR tapped, items=${detectedItems.size}")
-                    isScanningRef.set(false)   // pause item detection while reviewing
+                    isScanningRef.set(false)
                     showReviewSheet = true
                 },
                 modifier = Modifier
@@ -583,11 +622,13 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             }
         }
 
-        // ── Overlays ──────────────────────────────────────────────────────
         AnimatedVisibility(
             visible = showReviewSheet,
             enter = slideInVertically(
-                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                ),
                 initialOffsetY = { it }
             ) + fadeIn(animationSpec = tween(220)),
             exit = slideOutVertically(
@@ -596,10 +637,11 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             ) + fadeOut(animationSpec = tween(220, easing = FastOutSlowInEasing))
         ) {
             ReviewSheet(
-                items     = detectedItems,
+                items = detectedItems,
                 onConfirm = {
+                    if (hasNavigatedRef.getAndSet(true)) return@ReviewSheet
                     Log.d(TAG, "Review confirmed, saving to DB then navigating")
-                    isScanningRef.set(false)
+                    stopScanningNow()
                     showReviewSheet = false
                     scope.launch(Dispatchers.IO) {
                         // Generate a unique box name and persist box + items
@@ -614,7 +656,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 },
                 onDismiss = {
                     showReviewSheet = false
-                    isScanningRef.set(true)   // resume detection when review dismissed
+                    isScanningRef.set(true)
                 }
             )
         }
@@ -622,7 +664,10 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         AnimatedVisibility(
             visible = showComplaintSheet,
             enter = slideInVertically(
-                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                ),
                 initialOffsetY = { it }
             ) + fadeIn(animationSpec = tween(220)),
             exit = slideOutVertically(
@@ -635,31 +680,19 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Merge detections — accumulating history
-//  - New label seen for first time → add it
-//  - Label seen again with higher count → update upward only
-//  - Label disappears from frame → keep it (user can remove manually in review)
-// ─────────────────────────────────────────────────────────────────────────────
 private fun mergeDetections(current: SnapshotStateList<DetectedItem>, fresh: List<DetectedItem>) {
-    fresh.forEach { newItem: DetectedItem ->
+    fresh.forEach { newItem ->
         val idx = current.indexOfFirst { it.label == newItem.label }
         if (idx >= 0) {
-            // Only update if new count is higher — don't decrease when item leaves frame
             if (newItem.count > current[idx].count) {
                 current[idx] = newItem
             }
         } else {
-            // Brand new label — add to history
             current.add(newItem)
         }
     }
-    // Never remove items — history persists until user clears in review sheet
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  ReviewSheet
-// ─────────────────────────────────────────────────────────────────────────────
 @Composable
 fun ReviewSheet(
     items: SnapshotStateList<DetectedItem>,
@@ -685,12 +718,17 @@ fun ReviewSheet(
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
                     .padding(bottom = 20.dp)
-                    .width(36.dp).height(4.dp)
+                    .width(36.dp)
+                    .height(4.dp)
                     .background(borderN, RoundedCornerShape(2.dp))
             )
             Text("Are you sure?", color = whiteN, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text("Review quantities before generating QR", color = mutedN, fontSize = 12.sp,
-                modifier = Modifier.padding(top = 4.dp, bottom = 20.dp))
+            Text(
+                "Review quantities before generating QR",
+                color = mutedN,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
+            )
 
             Column(
                 modifier = Modifier
@@ -702,11 +740,15 @@ fun ReviewSheet(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 if (items.isEmpty()) {
-                    Text("No items detected yet.\nYou can still generate a QR for an empty box.",
-                        color = mutedN, fontSize = 13.sp, textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth())
+                    Text(
+                        "No items detected yet.\nYou can still generate a QR for an empty box.",
+                        color = mutedN,
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 } else {
-                    items.forEachIndexed { i: Int, item: DetectedItem ->
+                    items.forEachIndexed { i, item ->
                         if (i > 0) HorizontalDivider(color = borderN)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -732,7 +774,9 @@ fun ReviewSheet(
             Spacer(Modifier.height(8.dp))
             val reviewTotal: Int = items.sumOf { it.count }
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text("Total items", color = mutedN, fontSize = 13.sp)
@@ -754,9 +798,6 @@ fun ReviewSheet(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  SmallQtyButton
-// ─────────────────────────────────────────────────────────────────────────────
 @Composable
 private fun SmallQtyButton(text: String, active: Boolean = false, onClick: () -> Unit) {
     Text(
@@ -773,14 +814,11 @@ private fun SmallQtyButton(text: String, active: Boolean = false, onClick: () ->
     )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  ComplaintSheet
-// ─────────────────────────────────────────────────────────────────────────────
 @Composable
 fun ComplaintSheet(onDismiss: () -> Unit) {
-    val reasons  = listOf("Item damaged", "Wrong item", "Torn / worn out", "Missing label", "Other")
-    var selected  by remember { mutableStateOf<String?>(null) }
-    var notes     by remember { mutableStateOf("") }
+    val reasons = listOf("Item damaged", "Wrong item", "Torn / worn out", "Missing label", "Other")
+    var selected by remember { mutableStateOf<String?>(null) }
+    var notes by remember { mutableStateOf("") }
     var submitted by remember { mutableStateOf(false) }
 
     Box(
@@ -802,7 +840,8 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
                     .padding(bottom = 20.dp)
-                    .width(36.dp).height(4.dp)
+                    .width(36.dp)
+                    .height(4.dp)
                     .background(borderN, RoundedCornerShape(2.dp))
             )
 
@@ -813,7 +852,8 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Box(
-                        modifier = Modifier.size(56.dp)
+                        modifier = Modifier
+                            .size(56.dp)
                             .background(tealN.copy(alpha = 0.15f), CircleShape)
                             .border(1.dp, tealN.copy(alpha = 0.4f), CircleShape),
                         contentAlignment = Alignment.Center
@@ -821,8 +861,7 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
                         Icon(Icons.Default.CheckCircle, null, tint = tealN, modifier = Modifier.size(28.dp))
                     }
                     Text("Report Submitted", color = whiteN, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                    Text("Your complaint has been logged.", color = mutedN, fontSize = 13.sp,
-                        textAlign = TextAlign.Center)
+                    Text("Your complaint has been logged.", color = mutedN, fontSize = 13.sp, textAlign = TextAlign.Center)
                     Spacer(Modifier.height(8.dp))
                     Button(
                         onClick = onDismiss,
@@ -837,11 +876,15 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
                     Spacer(Modifier.width(8.dp))
                     Text("Report an Issue", color = whiteN, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 }
-                Text("Select the issue type below.", color = mutedN, fontSize = 12.sp,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 16.dp))
+                Text(
+                    "Select the issue type below.",
+                    color = mutedN,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
+                )
 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    reasons.forEach { reason: String ->
+                    reasons.forEach { reason ->
                         val isSelected = selected == reason
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -849,18 +892,27 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(if (isSelected) orangeN.copy(alpha = 0.12f) else surfAltN)
-                                .border(1.dp, if (isSelected) orangeN.copy(alpha = 0.6f) else borderN, RoundedCornerShape(10.dp))
+                                .border(
+                                    1.dp,
+                                    if (isSelected) orangeN.copy(alpha = 0.6f) else borderN,
+                                    RoundedCornerShape(10.dp)
+                                )
                                 .clickable(remember { MutableInteractionSource() }, null) { selected = reason }
                                 .padding(horizontal = 14.dp, vertical = 12.dp)
                         ) {
                             Box(
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier
+                                    .size(16.dp)
                                     .border(1.5.dp, if (isSelected) orangeN else mutedN, CircleShape)
                                     .background(if (isSelected) orangeN else Color.Transparent, CircleShape)
                             )
                             Spacer(Modifier.width(12.dp))
-                            Text(reason, color = if (isSelected) whiteN else mutedN, fontSize = 14.sp,
-                                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal)
+                            Text(
+                                reason,
+                                color = if (isSelected) whiteN else mutedN,
+                                fontSize = 14.sp,
+                                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
+                            )
                         }
                     }
                 }
@@ -869,15 +921,18 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
 
                 OutlinedTextField(
                     value = notes,
-                    onValueChange = { value: String -> notes = value },
+                    onValueChange = { value -> notes = value },
                     placeholder = { Text("Additional notes (optional)…", color = mutedN, fontSize = 13.sp) },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = tealN, unfocusedBorderColor = borderN,
-                        focusedTextColor = whiteN, unfocusedTextColor = whiteN,
+                        focusedBorderColor = tealN,
+                        unfocusedBorderColor = borderN,
+                        focusedTextColor = whiteN,
+                        unfocusedTextColor = whiteN,
                         cursorColor = tealN,
-                        focusedContainerColor = surfAltN, unfocusedContainerColor = surfAltN
+                        focusedContainerColor = surfAltN,
+                        unfocusedContainerColor = surfAltN
                     ),
                     maxLines = 3
                 )
