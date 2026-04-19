@@ -686,11 +686,9 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                             // Generate a unique box name
                             val existingNames = repository.getAllBoxNames().toSet()
                             val boxName = BoxNameGenerator.generateUnique(existingNames)
-                            val ts = System.currentTimeMillis()
 
                             // 1. Write to Supabase first — throws on network/server error
-                            supabaseRepo.createBox(boxName, ts)
-                            supabaseRepo.saveItems(boxName, detectedItems.toList())
+                            supabaseRepo.saveBoxWithItems(boxName, detectedItems.toList())
 
                             // 2. Only persist locally after Supabase succeeds
                             val boxId = repository.createBox(boxName)

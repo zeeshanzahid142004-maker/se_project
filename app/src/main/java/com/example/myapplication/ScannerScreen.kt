@@ -255,8 +255,7 @@ private fun ScannerContent(navController: NavController) {
                     } else {
                         // New box — write to Supabase first, then save locally
                         try {
-                            val ts = System.currentTimeMillis()
-                            supabaseRepo.createBox(boxName, ts)
+                            supabaseRepo.saveBoxWithItems(boxName, emptyList())
                             val boxId = repository.createBox(boxName)
                             withContext(Dispatchers.Main) {
                                 boxIsExisting = false

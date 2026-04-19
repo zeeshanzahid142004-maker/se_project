@@ -3,13 +3,18 @@ package com.example.myapplication.data
 import com.example.myapplication.DetectedItem
 import com.example.myapplication.SupabaseModule
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Columns
 
 /**
  * Writes boxes and their items to the remote Supabase database.
  *
+ * Schema (after migration):
+ *   boxes : id (auto), created_at (auto), box_label (unique), item_id (nullable)
+ *   items : id (auto), created_at (auto), name, discription, count, box_id (FK → boxes.id)
+ *
  * Every method is a suspend function and must be called from a coroutine on
- * [kotlinx.coroutines.Dispatchers.IO]. Any network or server error is rethrown
- * so callers can handle it (e.g. show an error dialog and abort the local save).
+ * [kotlinx.coroutines.Dispatchers.IO]. Any network or server error is rethrown so
+ * callers can show an error and abort the local Room save.
  */
 class SupabaseRepository {
 
@@ -17,21 +22,33 @@ class SupabaseRepository {
     private val itemsTable = SupabaseModule.client.postgrest["items"]
 
     /**
-     * Insert a new box row.  Throws if the network is unavailable or if the
-     * Supabase server returns an error (e.g. duplicate name).
+     * Atomically saves a box and all its detected items to Supabase.
+     *
+     * Flow:
+     *   1. Insert a row into `boxes` with [boxLabel]; the server returns the
+     *      auto-generated `id`.
+     *   2. Bulk-insert all [items] into `items`, each referencing the new box id.
+     *
+     * Throws on any network or server error — no local fallback is performed.
+     *
+     * @return The server-generated box id (can be used to link local Room records).
      */
-    suspend fun createBox(name: String, createdAt: Long) {
-        boxesTable.insert(SupabaseBox(name = name, createdAt = createdAt))
-    }
+    suspend fun saveBoxWithItems(boxLabel: String, items: List<DetectedItem>): Long {
+        // 1. Insert box and get back the server-generated id
+        val box = boxesTable
+            .insert(SupabaseBoxInsert(boxLabel = boxLabel)) {
+                select(Columns.list("id", "box_label"))
+            }
+            .decodeSingle<SupabaseBoxResponse>()
 
-    /**
-     * Insert all [items] for [boxName].  A no-op when [items] is empty.
-     * Throws on any failure.
-     */
-    suspend fun saveItems(boxName: String, items: List<DetectedItem>) {
-        if (items.isEmpty()) return
-        itemsTable.insert(
-            items.map { SupabaseItem(boxName = boxName, label = it.label, count = it.count) }
-        )
+        // 2. Bulk-insert items (no-op if the list is empty)
+        if (items.isNotEmpty()) {
+            itemsTable.insert(
+                items.map { SupabaseItemInsert(boxId = box.id, name = it.label, count = it.count) }
+            )
+        }
+
+        return box.id
     }
 }
+
