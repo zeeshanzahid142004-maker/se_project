@@ -1,6 +1,10 @@
 import com.android.build.api.dsl.AaptOptions
 import java.util.Properties
 import java.io.FileInputStream
+
+
+
+
 val localProperties = Properties()
 val localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
@@ -10,8 +14,8 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {
@@ -88,6 +92,7 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     // QR generation
     implementation("com.google.zxing:core:3.5.3")
+
     implementation("com.google.accompanist:accompanist-permissions:0.34.0")
 // CameraX (scanning)
     implementation("androidx.camera:camera-camera2:1.3.1")

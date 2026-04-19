@@ -4,34 +4,30 @@ import io.github.jan.supabase.postgrest.postgrest
 
 class BoxRepImplementation : BoxRepository {
 
-    private val boxesTables= SupabaseModule.client.postgrest["boxes"]
-    override suspend fun getBox(BoxId: String): Result<Box_With_Item?> {
+    private val boxesTables = SupabaseModule.client.postgrest["boxes"]
+
+    override suspend fun getBox(boxId: String): Result<Box_With_Item?> {
         return try {
-            val boxDetails =
-                boxesTables.select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("*,items(*)"))
-                {
+            val boxDetails = boxesTables
+                .select(columns = io.github.jan.supabase.postgrest.query.Columns.raw("*,items(*)")) {
                     filter {
-                        eq("id", BoxId)
-                           }
+                        eq("id", boxId)
+                    }
                 }.decodeSingleOrNull<box_Data>()
 
             Result.success(boxDetails?.let { Box_With_Item(it.id, Item(it.item_id, "")) })
-                }
-            catch(e: Exception) {
-                Result.failure(e)
-            }
 
-
-    }
-        override suspend fun addBox(box: box_Data): Result<Unit> {
-           return try {
-               boxesTables.insert(box)
-               Result.success(Unit)
-
-           }catch (e: Exception){
-               Result.failure(e)
-           }
+        } catch (e: Exception) {
+            Result.failure(e)
         }
-
-
     }
+
+    override suspend fun addBox(box: box_Data): Result<Unit> {
+        return try {
+            boxesTables.insert(box)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+}

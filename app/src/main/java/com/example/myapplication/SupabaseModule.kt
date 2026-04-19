@@ -4,6 +4,7 @@ import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import com.example.myapplication.BuildConfig
 
+
 private const val TAG_SB = "SupabaseModule"
 
 object SupabaseModule {
