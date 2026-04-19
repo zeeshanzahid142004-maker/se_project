@@ -60,6 +60,16 @@ class MainActivity : ComponentActivity() {
                     val boxId = backStackEntry.arguments?.getLong("boxId") ?: 0L
                     QrDisplayScreen(navController = navController, boxId = boxId)
                 }
+
+                // Route used by ScannerScreen: loads box + items from Supabase only
+                composable(
+                    route = "qr_display_screen_remote/{boxLabel}",
+                    arguments = listOf(navArgument("boxLabel") { type = NavType.StringType })
+                ) { backStackEntry ->
+                    val encoded = backStackEntry.arguments?.getString("boxLabel") ?: ""
+                    val boxLabel = android.net.Uri.decode(encoded)
+                    QrDisplayScreenByLabel(navController = navController, boxLabel = boxLabel)
+                }
             }
         }
     }
