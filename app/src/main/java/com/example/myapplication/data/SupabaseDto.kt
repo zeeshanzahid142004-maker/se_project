@@ -36,11 +36,14 @@ data class SupabaseBoxInsert(
 
 /**
  * Row returned after a box insert (PostgREST `Prefer: return=representation`).
+ * [createdAt] is an ISO-8601 timestamp string as returned by Supabase/PostgREST,
+ * e.g. "2024-01-01T12:00:00+00:00".
  */
 @Serializable
 data class SupabaseBoxResponse(
     val id: Long,
-    @SerialName("box_label") val boxLabel: String
+    @SerialName("box_label") val boxLabel: String,
+    @SerialName("created_at") val createdAt: String = ""
 )
 
 /**
