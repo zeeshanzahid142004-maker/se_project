@@ -187,10 +187,22 @@ private fun ScannerContent(navController: NavController) {
     var scannedValue  by remember { mutableStateOf<String?>(null) }
     var navigated     by remember { mutableStateOf(false) }
     var boxIsExisting by remember { mutableStateOf<Boolean?>(null) }
+    var scanError     by remember { mutableStateOf<String?>(null) }
+
+    // true = front camera, false = back camera (default)
+    var useFrontCamera by remember { mutableStateOf(false) }
 
     // isScanningRef — stops the ML Kit analyzer once a QR is decoded.
     val isScanningRef = remember { AtomicBoolean(true) }
     DisposableEffect(Unit) { onDispose { isScanningRef.set(false) } }
+
+    // Reset scanning state whenever the user flips the camera
+    LaunchedEffect(useFrontCamera) {
+        scannedValue  = null
+        scanError     = null
+        navigated     = false
+        isScanningRef.set(true)
+    }
 
     // isScreenResumedRef — pauses the analyzer while the screen is not RESUMED
     // (e.g. when QrDisplayScreen is on top). Also resets scan state when the
@@ -206,6 +218,7 @@ private fun ScannerContent(navController: NavController) {
                     if (navigated) {
                         navigated     = false
                         scannedValue  = null
+                        scanError     = null
                         boxIsExisting = null
                         isScanningRef.set(true)
                     }
@@ -218,24 +231,52 @@ private fun ScannerContent(navController: NavController) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // When a QR value arrives, look the box up in the DB (or create it) then
-    // navigate to the details screen.  Done in a coroutine so DB access is
-    // off the main thread.
+    // When a QR value arrives:
+    //  • If it is a BoxScan-format QR (contains "boxId":) → look up / create and navigate.
+    //  • If it is a plain QR that matches an existing box name → navigate.
+    //  • Otherwise → show an error and re-enable scanning for retry.
     LaunchedEffect(scannedValue) {
         val raw = scannedValue ?: return@LaunchedEffect
         if (navigated) return@LaunchedEffect
         navigated = true
+
         scope.launch(Dispatchers.IO) {
-            val boxName = raw
-                .substringAfter("\"boxId\":\"", "")
-                .substringBefore("\"")
-                .ifBlank { raw }
-            // Find existing box or create a new entry for externally-generated QRs
+            val isBoxScanFormat = raw.contains("\"boxId\":")
+            val boxName = if (isBoxScanFormat) {
+                raw.substringAfter("\"boxId\":\"", "")
+                    .substringBefore("\"")
+                    .ifBlank { raw }
+            } else {
+                raw
+            }
+
             val existing = repository.getBoxByName(boxName)
-            val boxId    = existing?.id ?: repository.createBox(boxName)
-            withContext(Dispatchers.Main) {
-                boxIsExisting = existing != null
-                navController.navigate("qr_display_screen/$boxId")
+
+            when {
+                // Our own QR format — always succeed (create new box if needed)
+                isBoxScanFormat -> {
+                    val boxId = existing?.id ?: repository.createBox(boxName)
+                    withContext(Dispatchers.Main) {
+                        boxIsExisting = existing != null
+                        navController.navigate("qr_display_screen/$boxId")
+                    }
+                }
+                // Generic QR that happens to match an existing box — navigate
+                existing != null -> {
+                    withContext(Dispatchers.Main) {
+                        boxIsExisting = true
+                        navController.navigate("qr_display_screen/${existing.id}")
+                    }
+                }
+                // Completely unrecognized QR — show error, allow retry
+                else -> {
+                    withContext(Dispatchers.Main) {
+                        scanError    = "Unrecognized QR code. This doesn't appear to be a BoxScan QR."
+                        scannedValue = null
+                        navigated    = false
+                        // Keep isScanningRef false; user must tap "Try Again"
+                    }
+                }
             }
         }
     }
@@ -264,6 +305,8 @@ private fun ScannerContent(navController: NavController) {
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF080C10))) {
 
         // ── CameraX PreviewView ────────────────────────────────────────────
+        // key() forces full recreation (and camera rebind) when the selector changes
+        key(useFrontCamera) {
         AndroidView(
             factory = { ctx ->
                 val previewView = PreviewView(ctx).apply {
@@ -347,11 +390,16 @@ private fun ScannerContent(navController: NavController) {
                             }
                         }
 
+                    val cameraSelector = if (useFrontCamera) {
+                        CameraSelector.DEFAULT_FRONT_CAMERA
+                    } else {
+                        CameraSelector.DEFAULT_BACK_CAMERA
+                    }
                     runCatching {
                         cameraProvider.unbindAll()
                         cameraProvider.bindToLifecycle(
                             lifecycleOwner,
-                            CameraSelector.DEFAULT_BACK_CAMERA,
+                            cameraSelector,
                             preview,
                             imageAnalysis
                         )
@@ -362,6 +410,7 @@ private fun ScannerContent(navController: NavController) {
             },
             modifier = Modifier.fillMaxSize()
         )
+        } // end key(useFrontCamera)
 
         // Square vignette with rounded corners matching the bracket corners
         Box(
@@ -417,15 +466,16 @@ private fun ScannerContent(navController: NavController) {
 
         // ── Viewfinder + scan line ─────────────────────────────────────────
         if (scannedValue == null) {
+            val bracketColor = if (scanError != null) redS else tealS
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .size(260.dp)          // ← square, fixed size
+                    .size(260.dp)
                     .drawBehind {
                         val bLen = 26.dp.toPx()
                         val sw   = 2.4f
                         val r    = 10.dp.toPx()
-                        val col  = tealS.copy(alpha = pulse)
+                        val col  = bracketColor.copy(alpha = pulse)
 
                         // top-left
                         drawLine(col, Offset(0f, r + bLen), Offset(0f, r), sw)
@@ -444,30 +494,35 @@ private fun ScannerContent(navController: NavController) {
                         drawArc(col, 0f, 90f, false, Offset(size.width - r*2, size.height - r*2), Size(r*2, r*2), style = Stroke(sw))
                         drawLine(col, Offset(size.width - r, size.height), Offset(size.width - r - bLen, size.height), sw)
 
-                        // Scan line
-                        val ly = size.height * scanY
-                        drawLine(
-                            Brush.horizontalGradient(
-                                0f to Color.Transparent, 0.3f to tealS.copy(0.85f),
-                                0.5f to tealS, 0.7f to tealS.copy(0.85f), 1f to Color.Transparent
-                            ),
-                            Offset(0f, ly), Offset(size.width, ly), 1.6f
-                        )
-                        drawLine(
-                            Brush.horizontalGradient(
-                                0f to Color.Transparent, 0.5f to tealS.copy(0.25f), 1f to Color.Transparent
-                            ),
-                            Offset(0f, ly), Offset(size.width, ly), 10f
-                        )
+                        // Only draw the scan line when not in error state
+                        if (scanError == null) {
+                            val ly = size.height * scanY
+                            drawLine(
+                                Brush.horizontalGradient(
+                                    0f to Color.Transparent, 0.3f to tealS.copy(0.85f),
+                                    0.5f to tealS, 0.7f to tealS.copy(0.85f), 1f to Color.Transparent
+                                ),
+                                Offset(0f, ly), Offset(size.width, ly), 1.6f
+                            )
+                            drawLine(
+                                Brush.horizontalGradient(
+                                    0f to Color.Transparent, 0.5f to tealS.copy(0.25f), 1f to Color.Transparent
+                                ),
+                                Offset(0f, ly), Offset(size.width, ly), 10f
+                            )
+                        }
                     }
             )
 
             Text(
-                "Align BoxScan QR within the frame",
-                color = mutedS, fontSize = 12.sp, textAlign = TextAlign.Center,
+                if (scanError != null) "Tap "Try Again" below to scan a new code"
+                else "Align BoxScan QR within the frame",
+                color = if (scanError != null) redS.copy(alpha = 0.85f) else mutedS,
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center,
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .offset(y = 155.dp)   // 130 (half of 260dp box) + 25dp gap
+                    .offset(y = 155.dp)
                     .fillMaxWidth(0.7f)
             )
         }
@@ -489,20 +544,41 @@ private fun ScannerContent(navController: NavController) {
             Spacer(Modifier.width(12.dp))
             Column {
                 Text("Scan QR Code", color = whiteS, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                Text("Look up a box", color = mutedS, fontSize = 11.sp)
+                Text(
+                    if (useFrontCamera) "Front camera" else "Look up a box",
+                    color = mutedS, fontSize = 11.sp
+                )
             }
             Spacer(Modifier.weight(1f))
-            // Pulsating dot — teal while scanning, green when found
+
+            // Flip-camera button
+            IconButton(
+                onClick = { useFrontCamera = !useFrontCamera },
+                modifier = Modifier
+                    .size(38.dp)
+                    .background(surfS.copy(alpha = 0.88f), CircleShape)
+            ) {
+                Text(
+                    text = if (useFrontCamera) "↩" else "↪",
+                    color = whiteS,
+                    fontSize = 17.sp
+                )
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            // Pulsating dot — teal while scanning, green when found, red on error
             Box(
                 modifier = Modifier
                     .size(22.dp)
                     .drawBehind {
-                        val dotColor = if (scannedValue == null) tealS else Color(0xFF22C55E)
-                        // large outer ring — very visible pulse
+                        val dotColor = when {
+                            scanError    != null -> Color(0xFFE53E3E)
+                            scannedValue != null -> Color(0xFF22C55E)
+                            else                 -> tealS
+                        }
                         drawCircle(dotColor, radius = size.minDimension / 2f, alpha = pulse * 0.55f)
-                        // mid ring
                         drawCircle(dotColor, radius = size.minDimension * 0.36f, alpha = pulse * 0.8f)
-                        // solid core
                         drawCircle(dotColor, radius = size.minDimension * 0.22f)
                     }
             )
@@ -523,99 +599,168 @@ private fun ScannerContent(navController: NavController) {
                 .width(36.dp).height(4.dp)
                 .background(borderS, RoundedCornerShape(2.dp)))
 
+            // Three states: idle (null, null) | error (null, msg) | found (value, null)
             AnimatedContent(
-                targetState = scannedValue,
+                targetState = Pair(scannedValue, scanError),
                 transitionSpec = {
                     (fadeIn(tween(320)) + slideInVertically(tween(320, easing = FastOutSlowInEasing)) { it / 4 })
                         .togetherWith(fadeOut(tween(200)) + slideOutVertically(tween(200)) { -it / 4 })
                 },
                 label = "scannerBottomContent"
-            ) { value ->
-            if (value == null) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text("AWAITING SCAN", color = mutedS, fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-                    Spacer(Modifier.height(16.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth().height(72.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(surfAltS)
-                            .border(1.dp, borderS, RoundedCornerShape(12.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("Point camera at a BoxScan QR code",
-                            color = mutedS, fontSize = 13.sp, textAlign = TextAlign.Center)
+            ) { (value, error) ->
+                when {
+                    error != null -> {
+                        // ── Error state ──────────────────────────────────────
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                "SCAN FAILED",
+                                color = redS,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 2.sp
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(redS.copy(alpha = 0.08f))
+                                    .border(1.dp, redS.copy(alpha = 0.40f), RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        "⚠ Unrecognized QR Code",
+                                        color = redS,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        "This QR code is not linked to any box in the database.",
+                                        color = mutedS,
+                                        fontSize = 12.sp,
+                                        textAlign = TextAlign.Center,
+                                        lineHeight = 16.sp
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(16.dp))
+                            Button(
+                                onClick = {
+                                    scanError    = null
+                                    scannedValue = null
+                                    navigated    = false
+                                    isScanningRef.set(true)
+                                },
+                                modifier = Modifier.fillMaxWidth().height(52.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = redS)
+                            ) {
+                                Text(
+                                    "Try Again",
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+
+                    value != null -> {
+                        // ── Found state ───────────────────────────────────────
+                        val displayId = remember(value) {
+                            value.substringAfter("\"boxId\":\"")
+                                .substringBefore("\"")
+                                .ifBlank { value }
+                        }
+
+                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("BOX FOUND", color = tealS, fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                                Text(displayId, color = mutedS, fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(surfAltS)
+                                        .padding(horizontal = 8.dp, vertical = 4.dp))
+                            }
+
+                            Spacer(Modifier.height(14.dp))
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(surfAltS)
+                                    .border(1.dp, borderS, RoundedCornerShape(12.dp))
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                ScanInfoRow("Box ID",  displayId)
+                                HorizontalDivider(color = borderS)
+                                ScanInfoRow(
+                                    "Status",
+                                    when (boxIsExisting) {
+                                        true  -> "Existing Box"
+                                        false -> "New Box"
+                                        null  -> "Checking…"
+                                    },
+                                    highlight = true
+                                )
+                            }
+
+                            Spacer(Modifier.height(16.dp))
+
+                            Button(
+                                onClick = {
+                                    // Navigation is handled by LaunchedEffect(scannedValue);
+                                    // this button is a no-op tap target — the effect fires as soon
+                                    // as scannedValue is set so the screen transitions automatically.
+                                },
+                                modifier = Modifier.fillMaxWidth().height(52.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = redS)
+                            ) {
+                                Text("View Full Details", color = Color.White,
+                                    fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+
+                    else -> {
+                        // ── Idle state ────────────────────────────────────────
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("AWAITING SCAN", color = mutedS, fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                            Spacer(Modifier.height(16.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth().height(72.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(surfAltS)
+                                    .border(1.dp, borderS, RoundedCornerShape(12.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("Point camera at a BoxScan QR code",
+                                    color = mutedS, fontSize = 13.sp, textAlign = TextAlign.Center)
+                            }
+                        }
                     }
                 }
-            } else {
-                val displayId = remember(value) {
-                    val safe = value ?: ""
-                    safe.substringAfter("\"boxId\":\"")
-                        .substringBefore("\"")
-                        .ifBlank { safe }
-                }
-
-                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("BOX FOUND", color = tealS, fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-                        Text(displayId, color = mutedS, fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(surfAltS)
-                                .padding(horizontal = 8.dp, vertical = 4.dp))
-                    }
-
-                    Spacer(Modifier.height(14.dp))
-
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(surfAltS)
-                            .border(1.dp, borderS, RoundedCornerShape(12.dp))
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        ScanInfoRow("Box ID",  displayId)
-                        HorizontalDivider(color = borderS)
-                        ScanInfoRow(
-                            "Status",
-                            when (boxIsExisting) {
-                                true  -> "Existing Box"
-                                false -> "New Box"
-                                null  -> "Checking…"
-                            },
-                            highlight = true
-                        )
-                    }
-
-                    Spacer(Modifier.height(16.dp))
-
-                    Button(
-                        onClick = {
-                            // Navigation is handled by LaunchedEffect(scannedValue);
-                            // this button is a no-op tap target — the effect fires as soon
-                            // as scannedValue is set so the screen transitions automatically.
-                        },
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = redS)
-                    ) {
-                        Text("View Full Details", color = Color.White,
-                            fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                }
-            }
             }
         }
     }
