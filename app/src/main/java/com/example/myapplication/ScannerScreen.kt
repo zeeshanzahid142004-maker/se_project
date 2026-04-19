@@ -24,7 +24,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -197,6 +196,7 @@ private fun ScannerContent(navController: NavController) {
     var boxIsExisting by remember { mutableStateOf<Boolean?>(null) }
     var scanError     by remember { mutableStateOf<ScanErrorInfo?>(null) }
     var isLookingUp   by remember { mutableStateOf(false) }
+    var cameraReady   by remember { mutableStateOf(false) }
 
     // isScanningRef — stops the ML Kit analyzer once a QR is decoded.
     val isScanningRef = remember { AtomicBoolean(true) }
@@ -430,6 +430,8 @@ private fun ScannerContent(navController: NavController) {
                             imageAnalysis
                         )
                     }
+                    // Signal that camera is bound and the UI can proceed
+                    cameraReady = true
                 }, executor)
 
                 previewView
@@ -774,74 +776,24 @@ private fun ScannerContent(navController: NavController) {
             }
         }
 
-        // ── Modern loader overlay while looking up in Supabase ─────────────
+        // ── Init loader — shown until camera is bound ──────────────────────
+        if (!cameraReady) {
+            FullScreenLoader(
+                title    = "Initializing Scanner",
+                subtitle = "Preparing camera…"
+            )
+        }
+
+        // ── Lookup loader — shown while querying Supabase ──────────────────
         if (isLookingUp) {
-            ScannerLookupLoader()
+            FullScreenLoader(
+                title    = "Looking up box…",
+                subtitle = "Connecting to database"
+            )
         }
     }
 }
 
-@Composable
-private fun ScannerLookupLoader() {
-    val inf = rememberInfiniteTransition(label = "sll")
-    val angle by inf.animateFloat(
-        0f, 360f,
-        infiniteRepeatable(tween(900, easing = LinearEasing)),
-        label = "sllAngle"
-    )
-    val dotAlpha by inf.animateFloat(
-        0.3f, 1f,
-        infiniteRepeatable(tween(700, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "sllDot"
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xE6080C10)),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(72.dp)
-                    .drawBehind {
-                        drawCircle(tealS.copy(alpha = 0.10f), radius = size.minDimension * 0.48f)
-                        val sw = Stroke(
-                            width = 4.dp.toPx(),
-                            cap = StrokeCap.Round
-                        )
-                        drawArc(
-                            brush = Brush.sweepGradient(
-                                listOf(Color.Transparent, tealS)
-                            ),
-                            startAngle = angle,
-                            sweepAngle = 255f,
-                            useCenter = false,
-                            style = sw
-                        )
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(14.dp)
-                        .alpha(dotAlpha)
-                        .background(tealS, CircleShape)
-                )
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Looking up box…", color = whiteS, fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(4.dp))
-                Text("Connecting to database", color = mutedS, fontSize = 12.sp)
-            }
-        }
-    }
-}
 
 @Composable
 private fun ScanInfoRow(label: String, value: String, highlight: Boolean = false) {
