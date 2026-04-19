@@ -1,9 +1,12 @@
 package com.example.myapplication.data
 
+import android.util.Log
 import com.example.myapplication.DetectedItem
 import com.example.myapplication.SupabaseModule
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
+
+private const val TAG_REPO = "SupabaseRepository"
 
 /**
  * Writes boxes and their items to the remote Supabase database.
@@ -34,20 +37,42 @@ class SupabaseRepository {
      * @return The server-generated box id (can be used to link local Room records).
      */
     suspend fun saveBoxWithItems(boxLabel: String, items: List<DetectedItem>): Long {
+        Log.d(TAG_REPO, "saveBoxWithItems — boxLabel='$boxLabel' itemCount=${items.size}")
+        Log.d(TAG_REPO, "  → Supabase URL: ${com.example.myapplication.BuildConfig.SUPABASE_URL}")
+        Log.d(TAG_REPO, "  → Supabase key present: ${com.example.myapplication.BuildConfig.SUPABASE_KEY.isNotBlank()}")
+
         // 1. Insert box and get back the server-generated id
-        val box = boxesTable
-            .insert(SupabaseBoxInsert(boxLabel = boxLabel)) {
-                select(Columns.list("id", "box_label"))
-            }
-            .decodeSingle<SupabaseBoxResponse>()
+        val box = try {
+            Log.d(TAG_REPO, "  → inserting into 'boxes' table…")
+            val result = boxesTable
+                .insert(SupabaseBoxInsert(boxLabel = boxLabel)) {
+                    select(Columns.list("id", "box_label"))
+                }
+                .decodeSingle<SupabaseBoxResponse>()
+            Log.d(TAG_REPO, "  → box insert OK — id=${result.id} label=${result.boxLabel}")
+            result
+        } catch (e: Exception) {
+            Log.e(TAG_REPO, "  ✗ box insert FAILED: ${e::class.simpleName} — ${e.message}", e)
+            throw e
+        }
 
         // 2. Bulk-insert items (no-op if the list is empty)
         if (items.isNotEmpty()) {
-            itemsTable.insert(
-                items.map { SupabaseItemInsert(boxId = box.id, name = it.label, count = it.count) }
-            )
+            try {
+                Log.d(TAG_REPO, "  → inserting ${items.size} item(s) into 'items' table…")
+                itemsTable.insert(
+                    items.map { SupabaseItemInsert(boxId = box.id, name = it.label, count = it.count) }
+                )
+                Log.d(TAG_REPO, "  → items insert OK")
+            } catch (e: Exception) {
+                Log.e(TAG_REPO, "  ✗ items insert FAILED: ${e::class.simpleName} — ${e.message}", e)
+                throw e
+            }
+        } else {
+            Log.d(TAG_REPO, "  → no items to insert, skipping items table")
         }
 
+        Log.d(TAG_REPO, "saveBoxWithItems completed — returning boxId=${box.id}")
         return box.id
     }
 }

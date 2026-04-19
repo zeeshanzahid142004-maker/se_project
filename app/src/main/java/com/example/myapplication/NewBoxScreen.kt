@@ -1,11 +1,13 @@
 package com.example.myapplication
 
 import android.Manifest
+import android.media.MediaPlayer
 import android.util.Log
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -19,10 +21,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.wrapContentSize
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
@@ -43,8 +43,11 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -60,6 +63,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -125,6 +129,8 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     var saveError by remember { mutableStateOf<String?>(null) }
     var cameraReady by remember { mutableStateOf(false) }
     var useFrontCamera by remember { mutableStateOf(false) }
+    // Triggers the flash/haptic/audio feedback on successful scan
+    var scanFlashActive by remember { mutableStateOf(false) }
 
     val isScanningRef = remember { AtomicBoolean(true) }
     val hasNavigatedRef = remember { AtomicBoolean(false) }
@@ -167,6 +173,27 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         detector = d
     }
 
+    val haptic = LocalHapticFeedback.current
+
+    // Sensory feedback: flash → haptic → audio when a new item is detected
+    LaunchedEffect(scanFlashActive) {
+        if (!scanFlashActive) return@LaunchedEffect
+        // Haptic
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        // Audio — play the scan chime
+        try {
+            MediaPlayer.create(context, R.raw.crumble)?.apply {
+                setOnCompletionListener { release() }
+                start()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Audio feedback failed: ${e.message}")
+        }
+        // Hold flash for 420 ms then reset
+        delay(420)
+        scanFlashActive = false
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             stopScanningNow()
@@ -196,7 +223,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF080C10))) {
         val topInsetDp = 68.dp
-        val bottomInsetDp = 280.dp
+        val bottomInsetDp = 120.dp
         val camColor = if (cameraReady) tealN else redN
 
         key(useFrontCamera) {
@@ -267,7 +294,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                     val density = ctx.resources.displayMetrics.density
                                     val hPadPx = 28f * density
                                     val tPadPx = 120f * density
-                                    val bPadPx = 280f * density
+                                    val bPadPx = 120f * density
 
                                     val cropW = ((viewW - 2 * hPadPx) * (imgW.toFloat() / viewW))
                                         .toInt().coerceIn(1, imgW)
@@ -299,7 +326,10 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                             Log.d(TAG, "Inference results: $results")
                                             mainExecutor.execute {
                                                 if (isScanningRef.get()) {
-                                                    mergeDetections(detectedItems, results)
+                                                    val hadNew = mergeDetections(detectedItems, results)
+                                                    if (hadNew) {
+                                                        scanFlashActive = true
+                                                    }
                                                 }
                                             }
                                         } catch (e: Exception) {
@@ -370,6 +400,23 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             animationSpec = infiniteRepeatable(tween(450, easing = FastOutSlowInEasing), RepeatMode.Reverse),
             label = "flash"
         )
+        // Flash color: green/white during scan success, red otherwise
+        val successColor = Color(0xFF00E676)
+        val boxColor by animateColorAsState(
+            targetValue = if (scanFlashActive) successColor else redN,
+            animationSpec = tween(durationMillis = 120),
+            label = "boxColor"
+        )
+        val boxStrokeWidth by animateFloatAsState(
+            targetValue = if (scanFlashActive) 5.0f else 2.4f,
+            animationSpec = tween(durationMillis = 120),
+            label = "boxStroke"
+        )
+        val boxScale by animateFloatAsState(
+            targetValue = if (scanFlashActive) 1.05f else 1.0f,
+            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+            label = "boxScale"
+        )
 
         if (detectedItems.isNotEmpty()) {
             Box(
@@ -378,21 +425,22 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                     .padding(top = topInsetDp + 24.dp)
                     .padding(horizontal = 56.dp)
                     .size(210.dp, 190.dp)
+                    .scale(boxScale)
                     .drawBehind {
                         val cLen = 30.dp.toPx()
-                        val sw = 2.4f
-                        val col = redN.copy(alpha = flashAnim)
+                        val alpha = if (scanFlashActive) 1f else flashAnim
+                        val col = boxColor.copy(alpha = alpha)
 
-                        drawLine(col, Offset(0f, cLen), Offset(0f, 0f), sw)
-                        drawLine(col, Offset(0f, 0f), Offset(cLen, 0f), sw)
-                        drawLine(col, Offset(size.width, cLen), Offset(size.width, 0f), sw)
-                        drawLine(col, Offset(size.width - cLen, 0f), Offset(size.width, 0f), sw)
-                        drawLine(col, Offset(0f, size.height - cLen), Offset(0f, size.height), sw)
-                        drawLine(col, Offset(0f, size.height), Offset(cLen, size.height), sw)
-                        drawLine(col, Offset(size.width, size.height - cLen), Offset(size.width, size.height), sw)
-                        drawLine(col, Offset(size.width - cLen, size.height), Offset(size.width, size.height), sw)
+                        drawLine(col, Offset(0f, cLen), Offset(0f, 0f), boxStrokeWidth)
+                        drawLine(col, Offset(0f, 0f), Offset(cLen, 0f), boxStrokeWidth)
+                        drawLine(col, Offset(size.width, cLen), Offset(size.width, 0f), boxStrokeWidth)
+                        drawLine(col, Offset(size.width - cLen, 0f), Offset(size.width, 0f), boxStrokeWidth)
+                        drawLine(col, Offset(0f, size.height - cLen), Offset(0f, size.height), boxStrokeWidth)
+                        drawLine(col, Offset(0f, size.height), Offset(cLen, size.height), boxStrokeWidth)
+                        drawLine(col, Offset(size.width, size.height - cLen), Offset(size.width, size.height), boxStrokeWidth)
+                        drawLine(col, Offset(size.width - cLen, size.height), Offset(size.width, size.height), boxStrokeWidth)
 
-                        drawCircle(redN, 3.dp.toPx(), Offset(size.width / 2, size.height / 2), alpha = flashAnim)
+                        drawCircle(boxColor, 3.dp.toPx(), Offset(size.width / 2, size.height / 2), alpha = alpha)
                     }
             )
 
@@ -405,7 +453,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = topInsetDp + 8.dp)
-                    .background(redN.copy(0.75f), RoundedCornerShape(4.dp))
+                    .background(boxColor.copy(0.75f), RoundedCornerShape(4.dp))
                     .padding(horizontal = 8.dp, vertical = 3.dp)
             )
         }
@@ -461,7 +509,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             letterSpacing = 0.5.sp,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 288.dp)
+                .padding(bottom = 128.dp)
                 .background(Color.Black.copy(0.4f), RoundedCornerShape(6.dp))
                 .padding(horizontal = 10.dp, vertical = 4.dp)
         )
@@ -528,134 +576,67 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 .background(surfN)
                 .padding(bottom = 20.dp)
         ) {
+            // Drag handle
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
-                    .padding(top = 12.dp, bottom = 12.dp)
+                    .padding(top = 12.dp, bottom = 14.dp)
                     .width(36.dp)
                     .height(4.dp)
                     .background(borderN, RoundedCornerShape(2.dp))
             )
-            Text(
-                "Point camera at items",
-                color = mutedN,
-                fontSize = 11.sp,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            )
 
-            Spacer(Modifier.height(10.dp))
-
+            // Action buttons row: Camera switch FAB + Generate QR pill
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    "DETECTED ITEMS",
-                    color = mutedN,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.5.sp
-                )
-                val total: Int = detectedItems.sumOf { it.count }
-                Text("$total total", color = tealN, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(102.dp)
-                    .padding(horizontal = 20.dp)
-            ) {
-                if (detectedItems.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(64.dp)
-                            .border(1.dp, borderN, RoundedCornerShape(12.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("Waiting for detection…", color = mutedN, fontSize = 13.sp)
-                    }
-                } else {
-                    Column(
-                        modifier = Modifier.verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        detectedItems.reversed().forEach { item ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(surfAltN)
-                                    .border(1.dp, borderN, RoundedCornerShape(12.dp))
-                                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
-                                    Text(item.label, color = whiteN, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                                    Text("Detected", color = mutedN, fontSize = 11.sp)
-                                }
-                                Text("×${item.count}", color = whiteN, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-                        Spacer(Modifier.height(2.dp))
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(14.dp))
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.End
-            ) {
+                // Camera flip FAB
                 androidx.compose.material3.IconButton(
                     onClick = { useFrontCamera = !useFrontCamera },
                     modifier = Modifier
-                        .size(44.dp)
-                        .background(surfAltN, androidx.compose.foundation.shape.CircleShape)
-                        .border(1.dp, borderN, androidx.compose.foundation.shape.CircleShape)
+                        .size(52.dp)
+                        .background(surfAltN, CircleShape)
+                        .border(1.dp, borderN, CircleShape)
                 ) {
-                    Text(
-                        text = if (useFrontCamera) "↩" else "↪",
-                        color = whiteN,
-                        fontSize = 18.sp
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_camera_switch),
+                        contentDescription = "Flip camera",
+                        tint = whiteN,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
-            }
 
-            Spacer(Modifier.height(8.dp))
-
-            Button(
-                onClick = {
-                    Log.d(TAG, "Generate QR tapped, items=${detectedItems.size}")
-                    isScanningRef.set(false)
-                    showReviewSheet = true
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .height(52.dp)
-                    .shadow(8.dp, RoundedCornerShape(12.dp)),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = redN),
-                elevation = ButtonDefaults.buttonElevation(
-                    defaultElevation = 6.dp,
-                    pressedElevation = 2.dp
-                ),
-                enabled = true
-            ) {
-                Icon(Icons.Default.CheckCircle, null, tint = Color.White, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Generate QR", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                // Generate QR button — fills remaining width
+                Button(
+                    onClick = {
+                        Log.d(TAG, "Generate QR tapped, items=${detectedItems.size}")
+                        isScanningRef.set(false)
+                        showReviewSheet = true
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp)
+                        .shadow(8.dp, RoundedCornerShape(16.dp)),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = redN),
+                    elevation = ButtonDefaults.buttonElevation(
+                        defaultElevation = 6.dp,
+                        pressedElevation = 2.dp
+                    )
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_qr_code),
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Generate QR", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
 
@@ -765,17 +746,22 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     }
 }
 
-private fun mergeDetections(current: SnapshotStateList<DetectedItem>, fresh: List<DetectedItem>) {
+/** Returns true if any new item was added or an existing item's count increased. */
+private fun mergeDetections(current: SnapshotStateList<DetectedItem>, fresh: List<DetectedItem>): Boolean {
+    var changed = false
     fresh.forEach { newItem ->
         val idx = current.indexOfFirst { it.label == newItem.label }
         if (idx >= 0) {
             if (newItem.count > current[idx].count) {
                 current[idx] = newItem
+                changed = true
             }
         } else {
             current.add(newItem)
+            changed = true
         }
     }
+    return changed
 }
 
 @Composable
