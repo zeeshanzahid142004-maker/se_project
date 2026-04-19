@@ -97,6 +97,7 @@ fun InventoryScreen(navController: NavController) {
     val context        = LocalContext.current
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     val scope          = rememberCoroutineScope()
+    val repository     = remember { BoxRepository(AppDatabase.getInstance(context)) }
 
     var activeBoxes by remember { mutableIntStateOf(0) }
     var totalItems  by remember { mutableIntStateOf(0) }
@@ -105,15 +106,12 @@ fun InventoryScreen(navController: NavController) {
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                scope.launch {
-                    withContext(Dispatchers.IO) {
-                        val repo = BoxRepository(AppDatabase.getInstance(context))
-                        val boxes = repo.boxCount()
-                        val items = repo.totalItemCount()
-                        withContext(Dispatchers.Main) {
-                            activeBoxes = boxes
-                            totalItems  = items
-                        }
+                scope.launch(Dispatchers.IO) {
+                    val boxes = repository.boxCount()
+                    val items = repository.totalItemCount()
+                    withContext(Dispatchers.Main) {
+                        activeBoxes = boxes
+                        totalItems  = items
                     }
                 }
             }

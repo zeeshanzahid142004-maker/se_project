@@ -4,7 +4,7 @@ package com.example.myapplication
  * Generates unique, human-readable box names of the form
  * `BOX-{ADJECTIVE}-{NOUN}` (e.g. `BOX-SWIFT-EAGLE`).
  *
- * With 49 adjectives × 70 nouns = 3 430 possible combinations the
+ * With 49 adjectives × 70 nouns = 3,430 possible combinations the
  * collision probability is negligible for typical usage, and the retry
  * loop plus timestamp fallback guarantee uniqueness regardless.
  */

@@ -60,7 +60,8 @@ fun QrDisplayScreen(
     navController: NavController,
     boxId: Long
 ) {
-    val context = LocalContext.current
+    val context    = LocalContext.current
+    val repository = remember { BoxRepository(AppDatabase.getInstance(context)) }
 
     // ── Load box + items from DB ───────────────────────────────────────────
     var boxName  by remember { mutableStateOf("") }
@@ -70,12 +71,11 @@ fun QrDisplayScreen(
 
     LaunchedEffect(boxId) {
         withContext(Dispatchers.IO) {
-            val repo = BoxRepository(AppDatabase.getInstance(context))
-            val box  = repo.getBoxById(boxId)
+            val box  = repository.getBoxById(boxId)
             if (box != null) {
                 boxName   = box.name
                 createdAt = box.createdAt
-                contents  = repo.getItems(boxId)
+                contents  = repository.getItems(boxId)
             }
             isLoading = false
         }
