@@ -39,7 +39,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavController
+import com.example.myapplication.data.AppDatabase
+import com.example.myapplication.data.BoxRepository
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
@@ -49,6 +53,9 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val tealS    = Color(0xFF2DD4BF)
 private val redS     = Color(0xFFE53E3E)
@@ -174,14 +181,61 @@ private fun ScannerContent(navController: NavController) {
 
     val context        = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val scope          = rememberCoroutineScope()
+    val repository     = remember { BoxRepository(AppDatabase.getInstance(context)) }
 
     var scannedValue by remember { mutableStateOf<String?>(null) }
     var navigated    by remember { mutableStateOf(false) }
 
-    // Stop the ML Kit analyzer as soon as a code is found, so the camera
-    // stops processing frames and the UI stays stable.
+    // isScanningRef — stops the ML Kit analyzer once a QR is decoded.
     val isScanningRef = remember { AtomicBoolean(true) }
     DisposableEffect(Unit) { onDispose { isScanningRef.set(false) } }
+
+    // isScreenResumedRef — pauses the analyzer while the screen is not RESUMED
+    // (e.g. when QrDisplayScreen is on top). Also resets scan state when the
+    // user navigates back so they can scan a new QR immediately.
+    val isScreenResumedRef = remember { AtomicBoolean(true) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    isScreenResumedRef.set(true)
+                    // If we previously navigated to QrDisplayScreen, reset so
+                    // the user can scan again when they press back.
+                    if (navigated) {
+                        navigated    = false
+                        scannedValue = null
+                        isScanningRef.set(true)
+                    }
+                }
+                Lifecycle.Event.ON_PAUSE -> isScreenResumedRef.set(false)
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // When a QR value arrives, look the box up in the DB (or create it) then
+    // navigate to the details screen.  Done in a coroutine so DB access is
+    // off the main thread.
+    LaunchedEffect(scannedValue) {
+        val raw = scannedValue ?: return@LaunchedEffect
+        if (navigated) return@LaunchedEffect
+        navigated = true
+        scope.launch(Dispatchers.IO) {
+            val boxName = raw
+                .substringAfter("\"boxId\":\"", "")
+                .substringBefore("\"")
+                .ifBlank { raw }
+            // Find existing box or create a new entry for externally-generated QRs
+            val existing = repository.getBoxByName(boxName)
+            val boxId    = existing?.id ?: repository.createBox(boxName)
+            withContext(Dispatchers.Main) {
+                navController.navigate("qr_display_screen/$boxId")
+            }
+        }
+    }
 
     val inf = rememberInfiniteTransition(label = "scan")
     val scanY by inf.animateFloat(
@@ -231,7 +285,8 @@ private fun ScannerContent(navController: NavController) {
                         .also { analysis ->
                             analysis.setAnalyzer(analysisExecutor) { imageProxy ->
                                 val mediaImage = imageProxy.image
-                                if (mediaImage != null && isScanningRef.get()) {
+                                // Only process when screen is RESUMED and scanning is active
+                                if (mediaImage != null && isScanningRef.get() && isScreenResumedRef.get()) {
                                     val rotation = imageProxy.imageInfo.rotationDegrees
                                     val isRotated = rotation == 90 || rotation == 270
 
@@ -537,10 +592,9 @@ private fun ScannerContent(navController: NavController) {
 
                     Button(
                         onClick = {
-                            if (!navigated) {
-                                navigated = true
-                                navController.navigate("qr_display_screen")
-                            }
+                            // Navigation is handled by LaunchedEffect(scannedValue);
+                            // this button is a no-op tap target — the effect fires as soon
+                            // as scannedValue is set so the screen transitions automatically.
                         },
                         modifier = Modifier.fillMaxWidth().height(52.dp),
                         shape = RoundedCornerShape(12.dp),

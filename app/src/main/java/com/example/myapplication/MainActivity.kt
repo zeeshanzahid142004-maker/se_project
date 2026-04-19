@@ -9,9 +9,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,17 +44,21 @@ class MainActivity : ComponentActivity() {
                     InventoryScreen(navController = navController)
                 }
 
-                // ✅ Fixed: routes to real ScannerScreen
                 composable("scanner_screen") {
-                   ScannerScreen(navController = navController)
+                    ScannerScreen(navController = navController)
                 }
 
                 composable("new_box_screen") {
                     NewBoxScreen(navController = navController)
                 }
 
-                composable("qr_display_screen") {
-                    QrDisplayScreen(navController = navController)
+                // Dynamic route: boxId is the Room primary key of the created/scanned box
+                composable(
+                    route = "qr_display_screen/{boxId}",
+                    arguments = listOf(navArgument("boxId") { type = NavType.LongType })
+                ) { backStackEntry ->
+                    val boxId = backStackEntry.arguments?.getLong("boxId") ?: 0L
+                    QrDisplayScreen(navController = navController, boxId = boxId)
                 }
             }
         }

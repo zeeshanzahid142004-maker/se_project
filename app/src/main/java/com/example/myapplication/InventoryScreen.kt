@@ -22,6 +22,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -30,10 +31,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavController
+import com.example.myapplication.data.AppDatabase
+import com.example.myapplication.data.BoxRepository
 import com.example.myapplication.ui.theme.SB
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
@@ -87,6 +94,34 @@ private object BoxPalette {
 
 @Composable
 fun InventoryScreen(navController: NavController) {
+    val context        = LocalContext.current
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    val scope          = rememberCoroutineScope()
+
+    var activeBoxes by remember { mutableIntStateOf(0) }
+    var totalItems  by remember { mutableIntStateOf(0) }
+
+    // Reload stats every time this screen is RESUMED (e.g. on back from QrDisplayScreen)
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        val repo = BoxRepository(AppDatabase.getInstance(context))
+                        val boxes = repo.boxCount()
+                        val items = repo.totalItemCount()
+                        withContext(Dispatchers.Main) {
+                            activeBoxes = boxes
+                            totalItems  = items
+                        }
+                    }
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -150,8 +185,8 @@ fun InventoryScreen(navController: NavController) {
                 .padding(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            StatCard("24", "Active Boxes", modifier = Modifier.weight(1f))
-            StatCard("138", "Total Items", modifier = Modifier.weight(1f))
+            StatCard("$activeBoxes", "Active Boxes", modifier = Modifier.weight(1f))
+            StatCard("$totalItems", "Total Items", modifier = Modifier.weight(1f))
         }
 
         Spacer(Modifier.height(28.dp))
