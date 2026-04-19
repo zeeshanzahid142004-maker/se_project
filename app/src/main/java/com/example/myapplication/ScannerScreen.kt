@@ -1,5 +1,6 @@
 package com.example.myapplication
 
+import android.content.Context
 import androidx.annotation.OptIn
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -183,26 +184,16 @@ private fun ScannerContent(navController: NavController) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope          = rememberCoroutineScope()
     val repository     = remember { BoxRepository(AppDatabase.getInstance(context)) }
+    val supabaseRepo   = remember { com.example.myapplication.data.SupabaseRepository() }
 
     var scannedValue  by remember { mutableStateOf<String?>(null) }
     var navigated     by remember { mutableStateOf(false) }
     var boxIsExisting by remember { mutableStateOf<Boolean?>(null) }
     var scanError     by remember { mutableStateOf<String?>(null) }
 
-    // true = front camera, false = back camera (default)
-    var useFrontCamera by remember { mutableStateOf(false) }
-
     // isScanningRef — stops the ML Kit analyzer once a QR is decoded.
     val isScanningRef = remember { AtomicBoolean(true) }
     DisposableEffect(Unit) { onDispose { isScanningRef.set(false) } }
-
-    // Reset scanning state whenever the user flips the camera
-    LaunchedEffect(useFrontCamera) {
-        scannedValue  = null
-        scanError     = null
-        navigated     = false
-        isScanningRef.set(true)
-    }
 
     // isScreenResumedRef — pauses the analyzer while the screen is not RESUMED
     // (e.g. when QrDisplayScreen is on top). Also resets scan state when the
@@ -255,10 +246,29 @@ private fun ScannerContent(navController: NavController) {
             when {
                 // Our own QR format — always succeed (create new box if needed)
                 isBoxScanFormat -> {
-                    val boxId = existing?.id ?: repository.createBox(boxName)
-                    withContext(Dispatchers.Main) {
-                        boxIsExisting = existing != null
-                        navController.navigate("qr_display_screen/$boxId")
+                    if (existing != null) {
+                        // Box already exists locally — just navigate
+                        withContext(Dispatchers.Main) {
+                            boxIsExisting = true
+                            navController.navigate("qr_display_screen/${existing.id}")
+                        }
+                    } else {
+                        // New box — write to Supabase first, then save locally
+                        try {
+                            supabaseRepo.saveBoxWithItems(boxName, emptyList())
+                            val boxId = repository.createBox(boxName)
+                            withContext(Dispatchers.Main) {
+                                boxIsExisting = false
+                                navController.navigate("qr_display_screen/$boxId")
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("ScannerScreen", "Supabase save failed: ${e.message}", e)
+                            withContext(Dispatchers.Main) {
+                                scanError = "Could not save box — check your internet connection."
+                                scannedValue = null
+                                navigated = false
+                            }
+                        }
                     }
                 }
                 // Generic QR that happens to match an existing box — navigate
@@ -277,6 +287,23 @@ private fun ScannerContent(navController: NavController) {
                         // Keep isScanningRef false; user must tap "Try Again"
                     }
                 }
+            }
+        }
+    }
+
+    // Vibrate on scan failure
+    LaunchedEffect(scanError) {
+        if (scanError != null) {
+            val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                vibrator.vibrate(
+                    android.os.VibrationEffect.createOneShot(
+                        300L, android.os.VibrationEffect.DEFAULT_AMPLITUDE
+                    )
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(300L)
             }
         }
     }
@@ -305,8 +332,6 @@ private fun ScannerContent(navController: NavController) {
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF080C10))) {
 
         // ── CameraX PreviewView ────────────────────────────────────────────
-        // key() forces full recreation (and camera rebind) when the selector changes
-        key(useFrontCamera) {
         AndroidView(
             factory = { ctx ->
                 val previewView = PreviewView(ctx).apply {
@@ -390,11 +415,7 @@ private fun ScannerContent(navController: NavController) {
                             }
                         }
 
-                    val cameraSelector = if (useFrontCamera) {
-                        CameraSelector.DEFAULT_FRONT_CAMERA
-                    } else {
-                        CameraSelector.DEFAULT_BACK_CAMERA
-                    }
+                    val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
                     runCatching {
                         cameraProvider.unbindAll()
                         cameraProvider.bindToLifecycle(
@@ -410,7 +431,6 @@ private fun ScannerContent(navController: NavController) {
             },
             modifier = Modifier.fillMaxSize()
         )
-        } // end key(useFrontCamera)
 
         // Square vignette with rounded corners matching the bracket corners
         Box(
@@ -546,27 +566,11 @@ private fun ScannerContent(navController: NavController) {
             Column {
                 Text("Scan QR Code", color = whiteS, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                 Text(
-                    if (useFrontCamera) "Front camera" else "Look up a box",
+                    "Look up a box",
                     color = mutedS, fontSize = 11.sp
                 )
             }
             Spacer(Modifier.weight(1f))
-
-            // Flip-camera button
-            IconButton(
-                onClick = { useFrontCamera = !useFrontCamera },
-                modifier = Modifier
-                    .size(38.dp)
-                    .background(surfS.copy(alpha = 0.88f), CircleShape)
-            ) {
-                Text(
-                    text = if (useFrontCamera) "↩" else "↪",
-                    color = whiteS,
-                    fontSize = 17.sp
-                )
-            }
-
-            Spacer(Modifier.width(8.dp))
 
             // Pulsating dot — teal while scanning, green when found, red on error
             Box(
