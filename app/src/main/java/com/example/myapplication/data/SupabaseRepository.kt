@@ -75,5 +75,53 @@ class SupabaseRepository {
         Log.d(TAG_REPO, "saveBoxWithItems completed — returning boxId=${box.id}")
         return box.id
     }
+
+    /**
+     * Fetches a box and its items from Supabase by [boxLabel].
+     *
+     * @return A pair of the box response and its item list, or `null` if no
+     *         box with that label exists in the remote database.
+     * @throws Exception on any network or server error — callers should show
+     *         an internet-connectivity error to the user.
+     */
+    suspend fun fetchBoxWithItems(boxLabel: String): Pair<SupabaseBoxResponse, List<com.example.myapplication.DetectedItem>>? {
+        Log.d(TAG_REPO, "fetchBoxWithItems — boxLabel='$boxLabel'")
+
+        val boxes = try {
+            Log.d(TAG_REPO, "  → querying 'boxes' for label='$boxLabel'…")
+            boxesTable
+                .select(Columns.list("id", "box_label")) {
+                    filter { eq("box_label", boxLabel) }
+                }
+                .decodeList<SupabaseBoxResponse>()
+        } catch (e: Exception) {
+            Log.e(TAG_REPO, "  ✗ box fetch FAILED: ${e::class.simpleName} — ${e.message}", e)
+            throw e
+        }
+
+        if (boxes.isEmpty()) {
+            Log.d(TAG_REPO, "  → no box found with label='$boxLabel'")
+            return null
+        }
+
+        val box = boxes.first()
+        Log.d(TAG_REPO, "  → found box id=${box.id} label=${box.boxLabel}")
+
+        val items = try {
+            Log.d(TAG_REPO, "  → querying 'items' for box_id=${box.id}…")
+            itemsTable
+                .select(Columns.list("id", "name", "count")) {
+                    filter { eq("box_id", box.id) }
+                }
+                .decodeList<SupabaseItemResponse>()
+                .map { com.example.myapplication.DetectedItem(it.name, it.count) }
+        } catch (e: Exception) {
+            Log.e(TAG_REPO, "  ✗ items fetch FAILED: ${e::class.simpleName} — ${e.message}", e)
+            throw e
+        }
+
+        Log.d(TAG_REPO, "fetchBoxWithItems completed — boxId=${box.id}, ${items.size} item(s)")
+        return Pair(box, items)
+    }
 }
 

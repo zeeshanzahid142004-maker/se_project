@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.myapplication.data.AppDatabase
 import com.example.myapplication.data.BoxRepository
+import com.example.myapplication.data.SupabaseRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -86,6 +87,114 @@ fun QrDisplayScreen(
         }
     }
 
+    if (isLoading) {
+        QrDisplayShimmer()
+        return
+    }
+
+    QrDisplayContent(
+        navController = navController,
+        boxName       = boxName,
+        contents      = contents,
+        createdAt     = createdAt
+    )
+}
+
+/**
+ * Display the QR code and item list for the box identified by [boxLabel],
+ * loading data from Supabase (remote DB only — nothing is saved locally).
+ *
+ * Shows an error card if the box is not found or there is no internet.
+ */
+@Composable
+fun QrDisplayScreenByLabel(
+    navController: NavController,
+    boxLabel: String
+) {
+    val supabaseRepo = remember { SupabaseRepository() }
+
+    var boxName   by remember { mutableStateOf("") }
+    var contents  by remember { mutableStateOf<List<DetectedItem>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(boxLabel) {
+        withContext(Dispatchers.IO) {
+            try {
+                val result = supabaseRepo.fetchBoxWithItems(boxLabel)
+                if (result != null) {
+                    boxName  = result.first.boxLabel
+                    contents = result.second
+                } else {
+                    loadError = "This box was not found in the remote database."
+                }
+            } catch (e: Exception) {
+                loadError = "Could not reach the server. Please check your internet connection."
+            }
+            isLoading = false
+        }
+    }
+
+    when {
+        isLoading -> QrDisplayShimmer()
+        loadError != null -> {
+            // Error card — same style used in NewBoxScreen
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(bgQ),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        "⚠ Error",
+                        color = redQ,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        loadError!!,
+                        color = mutedQ,
+                        fontSize = 14.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        lineHeight = 20.sp
+                    )
+                    Button(
+                        onClick = { navController.popBackStack() },
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = redQ)
+                    ) {
+                        Text("Go Back", color = Color.White,
+                            fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+        else -> QrDisplayContent(
+            navController = navController,
+            boxName       = boxName,
+            contents      = contents,
+            createdAt     = 0L
+        )
+    }
+}
+/** Shared display composable used by both [QrDisplayScreen] and [QrDisplayScreenByLabel]. */
+@Composable
+private fun QrDisplayContent(
+    navController: NavController,
+    boxName: String,
+    contents: List<DetectedItem>,
+    createdAt: Long
+) {
+    val context = LocalContext.current
+
     // ── Generate QR bitmap off main thread once both boxName and contents are ready
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(boxName, contents) {
@@ -120,11 +229,6 @@ fun QrDisplayScreen(
             .fillMaxSize()
             .background(Brush.verticalGradient(0f to bgQ, 0.6f to bgQ, 1f to Color(0xFF0A1628)))
     ) {
-        if (isLoading) {
-            QrDisplayShimmer()
-            return@Box
-        }
-
         Column(
             modifier = Modifier
                 .fillMaxSize()

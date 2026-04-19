@@ -43,8 +43,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavController
-import com.example.myapplication.data.AppDatabase
-import com.example.myapplication.data.BoxRepository
+import com.example.myapplication.data.SupabaseRepository
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
@@ -65,6 +64,12 @@ private val surfAltS = Color(0xFF1C2333)
 private val borderS  = Color(0xFF30363D)
 private val mutedS   = Color(0xFF8B949E)
 private val whiteS   = Color(0xFFF0F6FC)
+
+/** Holds structured scan-error information for the error panel. */
+private data class ScanErrorInfo(
+    val title: String,
+    val subtitle: String
+)
 
 
 @kotlin.OptIn(ExperimentalPermissionsApi::class)
@@ -183,13 +188,12 @@ private fun ScannerContent(navController: NavController) {
     val context        = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope          = rememberCoroutineScope()
-    val repository     = remember { BoxRepository(AppDatabase.getInstance(context)) }
-    val supabaseRepo   = remember { com.example.myapplication.data.SupabaseRepository() }
+    val supabaseRepo   = remember { SupabaseRepository() }
 
     var scannedValue  by remember { mutableStateOf<String?>(null) }
     var navigated     by remember { mutableStateOf(false) }
     var boxIsExisting by remember { mutableStateOf<Boolean?>(null) }
-    var scanError     by remember { mutableStateOf<String?>(null) }
+    var scanError     by remember { mutableStateOf<ScanErrorInfo?>(null) }
 
     // isScanningRef — stops the ML Kit analyzer once a QR is decoded.
     val isScanningRef = remember { AtomicBoolean(true) }
@@ -223,9 +227,10 @@ private fun ScannerContent(navController: NavController) {
     }
 
     // When a QR value arrives:
-    //  • If it is a BoxScan-format QR (contains "boxId":) → look up / create and navigate.
-    //  • If it is a plain QR that matches an existing box name → navigate.
-    //  • Otherwise → show an error and re-enable scanning for retry.
+    //  • Extract box name from the QR payload.
+    //  • Look up the box in Supabase — the single source of truth.
+    //  • If found → navigate to the remote display screen.
+    //  • If not found or no internet → show an error and re-enable scanning for retry.
     LaunchedEffect(scannedValue) {
         val raw = scannedValue ?: return@LaunchedEffect
         if (navigated) return@LaunchedEffect
@@ -241,51 +246,43 @@ private fun ScannerContent(navController: NavController) {
                 raw
             }
 
-            val existing = repository.getBoxByName(boxName)
-
-            when {
-                // Our own QR format — always succeed (create new box if needed)
-                isBoxScanFormat -> {
-                    if (existing != null) {
-                        // Box already exists locally — just navigate
-                        withContext(Dispatchers.Main) {
-                            boxIsExisting = true
-                            navController.navigate("qr_display_screen/${existing.id}")
-                        }
-                    } else {
-                        // New box — write to Supabase first, then save locally
-                        try {
-                            supabaseRepo.saveBoxWithItems(boxName, emptyList())
-                            val boxId = repository.createBox(boxName)
-                            withContext(Dispatchers.Main) {
-                                boxIsExisting = false
-                                navController.navigate("qr_display_screen/$boxId")
-                            }
-                        } catch (e: Exception) {
-                            android.util.Log.e("ScannerScreen", "Supabase save failed: ${e.message}", e)
-                            withContext(Dispatchers.Main) {
-                                scanError = "Could not save box — check your internet connection."
-                                scannedValue = null
-                                navigated = false
-                            }
-                        }
-                    }
-                }
-                // Generic QR that happens to match an existing box — navigate
-                existing != null -> {
+            try {
+                val result = supabaseRepo.fetchBoxWithItems(boxName)
+                if (result != null) {
+                    // Box found in remote DB — navigate to display screen
+                    val encodedLabel = android.net.Uri.encode(boxName)
                     withContext(Dispatchers.Main) {
                         boxIsExisting = true
-                        navController.navigate("qr_display_screen/${existing.id}")
+                        navController.navigate("qr_display_screen_remote/$encodedLabel")
                     }
-                }
-                // Completely unrecognized QR — show error, allow retry
-                else -> {
+                } else {
+                    // QR scanned but box doesn't exist in remote DB
+                    val errorInfo = if (isBoxScanFormat) {
+                        ScanErrorInfo(
+                            title    = "⚠ Box Not Found",
+                            subtitle = "This QR code is not linked to any box in the remote database."
+                        )
+                    } else {
+                        ScanErrorInfo(
+                            title    = "⚠ Unrecognized QR Code",
+                            subtitle = "This QR code is not linked to any box in the remote database."
+                        )
+                    }
                     withContext(Dispatchers.Main) {
-                        scanError    = "Unrecognized QR code. This doesn't appear to be a BoxScan QR."
+                        scanError    = errorInfo
                         scannedValue = null
                         navigated    = false
-                        // Keep isScanningRef false; user must tap "Try Again"
                     }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ScannerScreen", "Supabase fetch failed: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    scanError = ScanErrorInfo(
+                        title    = "⚠ Connection Error",
+                        subtitle = "We couldn't reach the server. Please check your internet connection."
+                    )
+                    scannedValue = null
+                    navigated    = false
                 }
             }
         }
@@ -639,7 +636,7 @@ private fun ScannerContent(navController: NavController) {
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text(
-                                        "⚠ Unrecognized QR Code",
+                                        error.title,
                                         color = redS,
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.SemiBold,
@@ -647,7 +644,7 @@ private fun ScannerContent(navController: NavController) {
                                     )
                                     Spacer(Modifier.height(4.dp))
                                     Text(
-                                        "This QR code is not linked to any box in the database.",
+                                        error.subtitle,
                                         color = mutedS,
                                         fontSize = 12.sp,
                                         textAlign = TextAlign.Center,

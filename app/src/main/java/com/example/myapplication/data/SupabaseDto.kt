@@ -56,3 +56,13 @@ data class SupabaseItemInsert(
     val count: Int
 )
 
+/**
+ * Row returned when reading an item from Supabase.
+ */
+@Serializable
+data class SupabaseItemResponse(
+    val id: Long,
+    val name: String,
+    val count: Int
+)
+
