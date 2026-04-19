@@ -3,6 +3,9 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -99,19 +102,22 @@ fun InventoryScreen(navController: NavController) {
     val scope          = rememberCoroutineScope()
     val repository     = remember { BoxRepository(AppDatabase.getInstance(context)) }
 
-    var activeBoxes by remember { mutableIntStateOf(0) }
-    var totalItems  by remember { mutableIntStateOf(0) }
+    var activeBoxes  by remember { mutableIntStateOf(0) }
+    var totalItems   by remember { mutableIntStateOf(0) }
+    var statsLoading by remember { mutableStateOf(true) }
 
     // Reload stats every time this screen is RESUMED (e.g. on back from QrDisplayScreen)
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
+                statsLoading = true
                 scope.launch(Dispatchers.IO) {
                     val boxes = repository.boxCount()
                     val items = repository.totalItemCount()
                     withContext(Dispatchers.Main) {
-                        activeBoxes = boxes
-                        totalItems  = items
+                        activeBoxes  = boxes
+                        totalItems   = items
+                        statsLoading = false
                     }
                 }
             }
@@ -183,8 +189,13 @@ fun InventoryScreen(navController: NavController) {
                 .padding(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            StatCard("$activeBoxes", "Active Boxes", modifier = Modifier.weight(1f))
-            StatCard("$totalItems", "Total Items", modifier = Modifier.weight(1f))
+            if (statsLoading) {
+                StatCardShimmer(modifier = Modifier.weight(1f))
+                StatCardShimmer(modifier = Modifier.weight(1f))
+            } else {
+                StatCard("$activeBoxes", "Active Boxes", modifier = Modifier.weight(1f))
+                StatCard("$totalItems", "Total Items", modifier = Modifier.weight(1f))
+            }
         }
 
         Spacer(Modifier.height(28.dp))
@@ -227,6 +238,33 @@ private fun StatCard(value: String, label: String, modifier: Modifier = Modifier
         Spacer(Modifier.height(2.dp))
         Text(label, color = SB.muted, fontSize = 11.sp)
     }
+}
+
+@Composable
+private fun StatCardShimmer(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "shimmerI")
+    val x by transition.animateFloat(
+        initialValue = -400f,
+        targetValue  =  900f,
+        animationSpec = infiniteRepeatable(
+            tween(1400, easing = LinearEasing),
+            RepeatMode.Restart
+        ),
+        label = "shimmerXI"
+    )
+    val brush = Brush.linearGradient(
+        colors = listOf(Color(0xFF1C2333), Color(0xFF2D3B52), Color(0xFF1C2333)),
+        start  = Offset(x, 0f),
+        end    = Offset(x + 400f, 200f)
+    )
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(brush)
+            .border(1.dp, SB.border, RoundedCornerShape(12.dp))
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .height(56.dp)
+    )
 }
 
 @Composable

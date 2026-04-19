@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -116,10 +117,7 @@ fun QrDisplayScreen(
             .background(Brush.verticalGradient(0f to bgQ, 0.6f to bgQ, 1f to Color(0xFF0A1628)))
     ) {
         if (isLoading) {
-            CircularProgressIndicator(
-                color = tealQ,
-                modifier = Modifier.align(Alignment.Center)
-            )
+            QrDisplayShimmer()
             return@Box
         }
 
@@ -306,5 +304,75 @@ fun QrDisplayScreen(
 
             Spacer(Modifier.height(32.dp))
         }
+    }
+}
+
+// ── Shimmer helpers ───────────────────────────────────────────────────────────
+
+@Composable
+private fun shimmerBrush(): Brush {
+    val transition = rememberInfiniteTransition(label = "shimmerQ")
+    val x by transition.animateFloat(
+        initialValue = -600f,
+        targetValue  =  1400f,
+        animationSpec = infiniteRepeatable(
+            tween(1400, easing = LinearEasing),
+            RepeatMode.Restart
+        ),
+        label = "shimmerXQ"
+    )
+    return Brush.linearGradient(
+        colors = listOf(Color(0xFF1C2333), Color(0xFF2D3B52), Color(0xFF1C2333)),
+        start  = Offset(x, 0f),
+        end    = Offset(x + 600f, 300f)
+    )
+}
+
+@Composable
+private fun ShimmerBox(modifier: Modifier, cornerRadius: Int = 12) {
+    val brush = shimmerBrush()
+    Box(modifier = modifier.clip(RoundedCornerShape(cornerRadius.dp)).background(brush))
+}
+
+@Composable
+private fun QrDisplayShimmer() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(Modifier.height(24.dp))
+
+        // Status row
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            ShimmerBox(Modifier.width(130.dp).height(32.dp), cornerRadius = 20)
+            ShimmerBox(Modifier.width(90.dp).height(32.dp), cornerRadius = 8)
+        }
+
+        Spacer(Modifier.height(32.dp))
+
+        // Heading
+        ShimmerBox(Modifier.width(180.dp).height(26.dp))
+        Spacer(Modifier.height(8.dp))
+        ShimmerBox(Modifier.width(220.dp).height(16.dp))
+
+        Spacer(Modifier.height(36.dp))
+
+        // QR card
+        ShimmerBox(Modifier.size(210.dp), cornerRadius = 20)
+
+        Spacer(Modifier.height(24.dp))
+
+        // Contents card
+        ShimmerBox(Modifier.fillMaxWidth().height(190.dp), cornerRadius = 16)
+
+        Spacer(Modifier.height(20.dp))
+
+        // Buttons
+        ShimmerBox(Modifier.fillMaxWidth().height(52.dp))
+        Spacer(Modifier.height(10.dp))
+        ShimmerBox(Modifier.fillMaxWidth().height(52.dp))
     }
 }
