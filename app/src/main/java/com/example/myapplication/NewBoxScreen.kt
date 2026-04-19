@@ -6,11 +6,13 @@ import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateFloatAsState
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.runtime.getValue
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -31,8 +33,10 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -699,16 +703,25 @@ fun ReviewSheet(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    // Animate scrim alpha and sheet scale/alpha on first composition
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { entered = true }
+    val scrimAlpha  by animateFloatAsState(if (entered) 0.6f else 0f,  tween(280), label = "scrim")
+    val sheetScale  by animateFloatAsState(if (entered) 1f  else 0.92f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow), label = "scale")
+    val sheetAlpha  by animateFloatAsState(if (entered) 1f  else 0f,  tween(220), label = "alpha")
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.6f))
+            .background(Color.Black.copy(alpha = scrimAlpha))
             .clickable(remember { MutableInteractionSource() }, null) { onDismiss() }
     ) {
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
+                .scale(sheetScale)
+                .alpha(sheetAlpha)
                 .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                 .background(surfN)
                 .clickable(remember { MutableInteractionSource() }, null) {}
@@ -817,20 +830,28 @@ private fun SmallQtyButton(text: String, active: Boolean = false, onClick: () ->
 @Composable
 fun ComplaintSheet(onDismiss: () -> Unit) {
     val reasons = listOf("Item damaged", "Wrong item", "Torn / worn out", "Missing label", "Other")
-    var selected by remember { mutableStateOf<String?>(null) }
-    var notes by remember { mutableStateOf("") }
+    var selected  by remember { mutableStateOf<String?>(null) }
+    var notes     by remember { mutableStateOf("") }
     var submitted by remember { mutableStateOf(false) }
+
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { entered = true }
+    val scrimAlpha by animateFloatAsState(if (entered) 0.6f else 0f, tween(280), label = "cScrim")
+    val sheetScale by animateFloatAsState(if (entered) 1f else 0.92f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow), label = "cScale")
+    val sheetAlpha by animateFloatAsState(if (entered) 1f else 0f, tween(220), label = "cAlpha")
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.6f))
+            .background(Color.Black.copy(alpha = scrimAlpha))
             .clickable(remember { MutableInteractionSource() }, null) { onDismiss() }
     ) {
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
+                .scale(sheetScale)
+                .alpha(sheetAlpha)
                 .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                 .background(surfN)
                 .clickable(remember { MutableInteractionSource() }, null) {}

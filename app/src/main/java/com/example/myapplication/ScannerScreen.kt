@@ -184,8 +184,9 @@ private fun ScannerContent(navController: NavController) {
     val scope          = rememberCoroutineScope()
     val repository     = remember { BoxRepository(AppDatabase.getInstance(context)) }
 
-    var scannedValue by remember { mutableStateOf<String?>(null) }
-    var navigated    by remember { mutableStateOf(false) }
+    var scannedValue  by remember { mutableStateOf<String?>(null) }
+    var navigated     by remember { mutableStateOf(false) }
+    var boxIsExisting by remember { mutableStateOf<Boolean?>(null) }
 
     // isScanningRef — stops the ML Kit analyzer once a QR is decoded.
     val isScanningRef = remember { AtomicBoolean(true) }
@@ -203,8 +204,9 @@ private fun ScannerContent(navController: NavController) {
                     // If we previously navigated to QrDisplayScreen, reset so
                     // the user can scan again when they press back.
                     if (navigated) {
-                        navigated    = false
-                        scannedValue = null
+                        navigated     = false
+                        scannedValue  = null
+                        boxIsExisting = null
                         isScanningRef.set(true)
                     }
                 }
@@ -232,6 +234,7 @@ private fun ScannerContent(navController: NavController) {
             val existing = repository.getBoxByName(boxName)
             val boxId    = existing?.id ?: repository.createBox(boxName)
             withContext(Dispatchers.Main) {
+                boxIsExisting = existing != null
                 navController.navigate("qr_display_screen/$boxId")
             }
         }
@@ -585,7 +588,15 @@ private fun ScannerContent(navController: NavController) {
                     ) {
                         ScanInfoRow("Box ID",  displayId)
                         HorizontalDivider(color = borderS)
-                        ScanInfoRow("Status",  "In Storage", highlight = true)
+                        ScanInfoRow(
+                            "Status",
+                            when (boxIsExisting) {
+                                true  -> "Existing Box"
+                                false -> "New Box"
+                                null  -> "Checking…"
+                            },
+                            highlight = true
+                        )
                     }
 
                     Spacer(Modifier.height(16.dp))

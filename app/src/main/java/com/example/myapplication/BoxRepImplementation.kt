@@ -15,7 +15,7 @@ class BoxRepImplementation : BoxRepository {
                            }
                 }.decodeSingleOrNull<box_Data>()
 
-            Result.success(Box_With_Item)
+            Result.success(boxDetails?.let { Box_With_Item(it.id, Item(it.item_id, "")) })
                 }
             catch(e: Exception) {
                 Result.failure(e)
