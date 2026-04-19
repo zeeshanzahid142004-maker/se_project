@@ -184,6 +184,7 @@ private fun ScannerContent(navController: NavController) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope          = rememberCoroutineScope()
     val repository     = remember { BoxRepository(AppDatabase.getInstance(context)) }
+    val supabaseRepo   = remember { com.example.myapplication.data.SupabaseRepository() }
 
     var scannedValue  by remember { mutableStateOf<String?>(null) }
     var navigated     by remember { mutableStateOf(false) }
@@ -245,10 +246,30 @@ private fun ScannerContent(navController: NavController) {
             when {
                 // Our own QR format — always succeed (create new box if needed)
                 isBoxScanFormat -> {
-                    val boxId = existing?.id ?: repository.createBox(boxName)
-                    withContext(Dispatchers.Main) {
-                        boxIsExisting = existing != null
-                        navController.navigate("qr_display_screen/$boxId")
+                    if (existing != null) {
+                        // Box already exists locally — just navigate
+                        withContext(Dispatchers.Main) {
+                            boxIsExisting = true
+                            navController.navigate("qr_display_screen/${existing.id}")
+                        }
+                    } else {
+                        // New box — write to Supabase first, then save locally
+                        try {
+                            val ts = System.currentTimeMillis()
+                            supabaseRepo.createBox(boxName, ts)
+                            val boxId = repository.createBox(boxName)
+                            withContext(Dispatchers.Main) {
+                                boxIsExisting = false
+                                navController.navigate("qr_display_screen/$boxId")
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("ScannerScreen", "Supabase save failed: ${e.message}", e)
+                            withContext(Dispatchers.Main) {
+                                scanError = "Could not save box — check your internet connection."
+                                scannedValue = null
+                                navigated = false
+                            }
+                        }
                     }
                 }
                 // Generic QR that happens to match an existing box — navigate

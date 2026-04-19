@@ -118,10 +118,12 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope          = rememberCoroutineScope()
     val repository     = remember { BoxRepository(AppDatabase.getInstance(context)) }
+    val supabaseRepo   = remember { com.example.myapplication.data.SupabaseRepository() }
 
     val detectedItems = remember { mutableStateListOf<DetectedItem>() }
     var showReviewSheet by remember { mutableStateOf(false) }
     var showComplaintSheet by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<String?>(null) }
     var cameraReady by remember { mutableStateOf(false) }
     var useFrontCamera by remember { mutableStateOf(false) }
 
@@ -676,17 +678,33 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 items = detectedItems,
                 onConfirm = {
                     if (hasNavigatedRef.getAndSet(true)) return@ReviewSheet
-                    Log.d(TAG, "Review confirmed, saving to DB then navigating")
+                    Log.d(TAG, "Review confirmed, writing to Supabase then local DB")
                     stopScanningNow()
                     showReviewSheet = false
                     scope.launch(Dispatchers.IO) {
-                        // Generate a unique box name and persist box + items
-                        val existingNames = repository.getAllBoxNames().toSet()
-                        val boxName = BoxNameGenerator.generateUnique(existingNames)
-                        val boxId   = repository.createBox(boxName)
-                        repository.saveItems(boxId, detectedItems.toList())
-                        withContext(Dispatchers.Main) {
-                            navController.navigate("qr_display_screen/$boxId")
+                        try {
+                            // Generate a unique box name
+                            val existingNames = repository.getAllBoxNames().toSet()
+                            val boxName = BoxNameGenerator.generateUnique(existingNames)
+                            val ts = System.currentTimeMillis()
+
+                            // 1. Write to Supabase first — throws on network/server error
+                            supabaseRepo.createBox(boxName, ts)
+                            supabaseRepo.saveItems(boxName, detectedItems.toList())
+
+                            // 2. Only persist locally after Supabase succeeds
+                            val boxId = repository.createBox(boxName)
+                            repository.saveItems(boxId, detectedItems.toList())
+
+                            withContext(Dispatchers.Main) {
+                                navController.navigate("qr_display_screen/$boxId")
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Supabase save failed: ${e.message}", e)
+                            withContext(Dispatchers.Main) {
+                                hasNavigatedRef.set(false)
+                                saveError = "Could not save box — check your internet connection."
+                            }
                         }
                     }
                 },
@@ -712,6 +730,40 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             ) + fadeOut(animationSpec = tween(220, easing = FastOutSlowInEasing))
         ) {
             ComplaintSheet(onDismiss = { showComplaintSheet = false })
+        }
+
+        // ── Save-error dialog (shown when Supabase write fails) ─────────────
+        if (saveError != null) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = {
+                    saveError = null
+                    isScanningRef.set(true)
+                },
+                title = {
+                    Text("Save Failed", color = whiteN, fontWeight = FontWeight.Bold)
+                },
+                text = {
+                    Text(
+                        saveError ?: "",
+                        color = mutedN,
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            saveError = null
+                            isScanningRef.set(true)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = redN)
+                    ) {
+                        Text("OK", color = Color.White)
+                    }
+                },
+                containerColor = surfN,
+                titleContentColor = whiteN
+            )
         }
     }
 }
