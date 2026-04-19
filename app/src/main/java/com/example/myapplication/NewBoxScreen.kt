@@ -130,6 +130,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     var showComplaintSheet by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<String?>(null) }
     var cameraReady by remember { mutableStateOf(false) }
+    var isSaving by remember { mutableStateOf(false) }
     var useFrontCamera by remember { mutableStateOf(false) }
     // Triggers the flash/haptic/audio feedback on successful scan
     var scanFlashActive by remember { mutableStateOf(false) }
@@ -699,9 +700,11 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         ) {
             ReviewSheet(
                 items = detectedItems,
+                isSaving = isSaving,
                 onConfirm = {
                     if (hasNavigatedRef.getAndSet(true)) return@ReviewSheet
                     Log.d(TAG, "Review confirmed, writing to Supabase then local DB")
+                    isSaving = true
                     stopScanningNow()
                     showReviewSheet = false
                     scope.launch(Dispatchers.IO) {
@@ -724,6 +727,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                             Log.e(TAG, "Supabase save failed: ${e.message}", e)
                             withContext(Dispatchers.Main) {
                                 hasNavigatedRef.set(false)
+                                isSaving = false
                                 saveError = "Could not save box — check your internet connection."
                             }
                         }
@@ -756,8 +760,9 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             })
         }
 
-        // Phase 1: Shimmer loading overlay — shown until camera + YOLO detector are both ready
-        val isUiReady = cameraReady && detector != null
+        // Phase 1: Shimmer loading overlay — shown until camera + YOLO detector are both ready,
+        // but not during or after the finalize save flow.
+        val isUiReady = (cameraReady && detector != null) || isSaving
         val loadingAlpha by animateFloatAsState(
             targetValue = if (isUiReady) 0f else 1f,
             animationSpec = tween(durationMillis = 450),
@@ -876,6 +881,7 @@ private fun mergeDetections(current: SnapshotStateList<DetectedItem>, fresh: Lis
 @Composable
 fun ReviewSheet(
     items: SnapshotStateList<DetectedItem>,
+    isSaving: Boolean = false,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -974,13 +980,24 @@ fun ReviewSheet(
             Spacer(Modifier.height(20.dp))
             Button(
                 onClick = onConfirm,
+                enabled = !isSaving,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = redN)
             ) {
-                Icon(Icons.Default.CheckCircle, null, tint = Color.White, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Finalize", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                if (isSaving) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Saving…", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                } else {
+                    Icon(Icons.Default.CheckCircle, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Finalize", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                }
             }
             Spacer(Modifier.height(8.dp))
         }
