@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -70,6 +71,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val TAG = "NewBoxScreen"
+
+/** Holds structured error information for the save-error dialog. */
+private data class SaveErrorInfo(
+    val userMessage: String,
+    val technicalDetails: String,
+    val errorCode: String
+)
 
 private val tealN = Color(0xFF2DD4BF)
 private val redN = Color(0xFFE53E3E)
@@ -128,7 +136,8 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     val detectedItems = remember { mutableStateListOf<DetectedItem>() }
     var showReviewSheet by remember { mutableStateOf(false) }
     var showComplaintSheet by remember { mutableStateOf(false) }
-    var saveError by remember { mutableStateOf<String?>(null) }
+    var saveError by remember { mutableStateOf<SaveErrorInfo?>(null) }
+    var retryAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var cameraReady by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
     var useFrontCamera by remember { mutableStateOf(false) }
@@ -161,6 +170,36 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         imageAnalysisRef = null
         analysisExecutorRef = null
         cameraReady = false
+    }
+
+    fun launchSave(boxName: String, itemsSnapshot: List<DetectedItem>) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                // 1. Write to Supabase first — throws on network/server error
+                supabaseRepo.saveBoxWithItems(boxName, itemsSnapshot)
+
+                // 2. Only persist locally after Supabase succeeds
+                val boxId = repository.createBox(boxName)
+                repository.saveItems(boxId, itemsSnapshot)
+
+                withContext(Dispatchers.Main) {
+                    navController.navigate("qr_display_screen/$boxId")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Supabase save failed: ${e.message}", e)
+                val errorCode = classifyError(e)
+                withContext(Dispatchers.Main) {
+                    hasNavigatedRef.set(false)
+                    isSaving = false
+                    retryAction = { isSaving = true; launchSave(boxName, itemsSnapshot) }
+                    saveError = SaveErrorInfo(
+                        userMessage = "We couldn't reach the server. Please check your connection and try again.",
+                        technicalDetails = e.message ?: "Unknown error",
+                        errorCode = errorCode
+                    )
+                }
+            }
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -708,29 +747,9 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                     stopScanningNow()
                     showReviewSheet = false
                     scope.launch(Dispatchers.IO) {
-                        try {
-                            // Generate a unique box name
-                            val existingNames = repository.getAllBoxNames().toSet()
-                            val boxName = BoxNameGenerator.generateUnique(existingNames)
-
-                            // 1. Write to Supabase first — throws on network/server error
-                            supabaseRepo.saveBoxWithItems(boxName, detectedItems.toList())
-
-                            // 2. Only persist locally after Supabase succeeds
-                            val boxId = repository.createBox(boxName)
-                            repository.saveItems(boxId, detectedItems.toList())
-
-                            withContext(Dispatchers.Main) {
-                                navController.navigate("qr_display_screen/$boxId")
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Supabase save failed: ${e.message}", e)
-                            withContext(Dispatchers.Main) {
-                                hasNavigatedRef.set(false)
-                                isSaving = false
-                                saveError = "Could not save box — check your internet connection."
-                            }
-                        }
+                        val existingNames = repository.getAllBoxNames().toSet()
+                        val boxName = BoxNameGenerator.generateUnique(existingNames)
+                        launchSave(boxName, detectedItems.toList())
                     }
                 },
                 onDismiss = {
@@ -760,97 +779,66 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             })
         }
 
-        // Phase 1: Shimmer loading overlay — shown until camera + YOLO detector are both ready,
-        // but not during or after the finalize save flow.
-        val isUiReady = (cameraReady && detector != null) || isSaving
-        val loadingAlpha by animateFloatAsState(
-            targetValue = if (isUiReady) 0f else 1f,
-            animationSpec = tween(durationMillis = 450),
-            label = "loadingAlpha"
-        )
-        if (loadingAlpha > 0f) {
-            val shimmerInf = rememberInfiniteTransition(label = "shimmer")
-            val shimmerOffset by shimmerInf.animateFloat(
-                initialValue = -1f,
-                targetValue = 2f,
-                animationSpec = infiniteRepeatable(tween(1300, easing = LinearEasing)),
-                label = "shimmerOffset"
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .alpha(loadingAlpha)
-                    .background(Color(0xFF080C10))
-                    .drawBehind {
-                        // Animated shimmer streak
-                        val shimmerBrush = Brush.horizontalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color(0xFF1E2A3A).copy(alpha = 0.75f),
-                                Color.Transparent,
-                            ),
-                            startX = shimmerOffset * size.width,
-                            endX = (shimmerOffset + 0.55f) * size.width,
-                        )
-                        drawRect(shimmerBrush)
-
-                        // Skeleton camera viewport placeholder
-                        val padH = 28.dp.toPx()
-                        val padT = topInsetDp.toPx() + 16.dp.toPx()
-                        val padB = bottomInsetDp.toPx() + 16.dp.toPx()
-                        val skelColor = Color(0xFF1C2736)
-                        drawRect(
-                            color = skelColor,
-                            topLeft = Offset(padH, padT),
-                            size = Size(size.width - padH * 2, size.height - padT - padB),
-                        )
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(
-                        color = tealN,
-                        modifier = Modifier.size(28.dp),
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(Modifier.height(14.dp))
-                    Text(
-                        "Initializing scanner…",
-                        color = mutedN,
-                        fontSize = 13.sp,
-                        letterSpacing = 0.3.sp
-                    )
-                }
-            }
-        }
-
         // ── Save-error dialog (shown when Supabase write fails) ─────────────
         if (saveError != null) {
-            androidx.compose.material3.AlertDialog(
+            AlertDialog(
                 onDismissRequest = {
                     saveError = null
+                    retryAction = null
                     isScanningRef.set(true)
                 },
                 title = {
-                    Text("Save Failed", color = whiteN, fontWeight = FontWeight.Bold)
+                    Text("Connection Failed", color = whiteN, fontWeight = FontWeight.Bold)
                 },
                 text = {
-                    Text(
-                        saveError ?: "",
-                        color = mutedN,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            saveError!!.userMessage,
+                            color = mutedN,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp
+                        )
+                        HorizontalDivider(color = borderN)
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                saveError!!.technicalDetails,
+                                color = mutedN.copy(alpha = 0.8f),
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                lineHeight = 15.sp
+                            )
+                            Text(
+                                "Code: ${saveError!!.errorCode}",
+                                color = orangeN,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            saveError = null
+                            retryAction = null
+                            isScanningRef.set(true)
+                        }
+                    ) {
+                        Text("Dismiss", color = mutedN)
+                    }
                 },
                 confirmButton = {
                     Button(
                         onClick = {
+                            val retry = retryAction
                             saveError = null
-                            isScanningRef.set(true)
+                            hasNavigatedRef.set(true)
+                            isSaving = true
+                            retry?.invoke()
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = redN)
                     ) {
-                        Text("OK", color = Color.White)
+                        Text("Retry", color = Color.White)
                     }
                 },
                 containerColor = surfN,
@@ -876,6 +864,22 @@ private fun mergeDetections(current: SnapshotStateList<DetectedItem>, fresh: Lis
         }
     }
     return changed
+}
+
+/**
+ * Derives a short, human-readable error code from the exception.
+ * HTTP errors include the status code (e.g. "HTTP_500").
+ * All other errors use the fully-qualified class name.
+ */
+private fun classifyError(e: Exception): String {
+    val message = e.message ?: ""
+    // Look for a 3-digit HTTP status code in the exception message
+    val httpMatch = Regex("\\b([1-5]\\d{2})\\b").find(message)
+    return if (httpMatch != null) {
+        "HTTP_${httpMatch.value}"
+    } else {
+        e::class.java.name
+    }
 }
 
 @Composable
