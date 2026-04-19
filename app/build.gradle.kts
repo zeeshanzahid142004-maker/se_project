@@ -97,13 +97,13 @@ dependencies {
     implementation("com.google.mlkit:barcode-scanning:17.2.0")
 
 //supabase
-    implementation(platform("io.github.jan-tennert.supabase:bom:2.4.3"))
+    implementation(platform("io.github.jan-tennert.supabase:bom:2.5.4"))
 
     // Core and PostgREST (Database)
     implementation("io.github.jan-tennert.supabase:postgrest-kt")
 
     // Ktor client engine (required by Supabase)
-    implementation("io.ktor:ktor-client-android:2.3.8")
+    implementation("io.ktor:ktor-client-android:2.3.12")
 
     // Kotlin Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
