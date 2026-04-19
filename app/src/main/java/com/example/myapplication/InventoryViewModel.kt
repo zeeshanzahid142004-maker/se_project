@@ -26,7 +26,7 @@ class BoxViewModel(
                         box_Data->
                     _currentBox.value= box_Data
                     _errorMessage.value=null
-                    println("Scanned successfully: ${box_Data.item_id}")
+                    println("Scanned successfully: ${box_Data?.item?.item_id}")
                 },
                 onFailure = {
                     error->

@@ -515,7 +515,8 @@ private fun ScannerContent(navController: NavController) {
             )
 
             Text(
-                if (scanError != null) "Tap "Try Again" below to scan a new code"
+                if (scanError != null)
+                    "Tap Try Again below to scan a new code";
                 else "Align BoxScan QR within the frame",
                 color = if (scanError != null) redS.copy(alpha = 0.85f) else mutedS,
                 fontSize = 12.sp,
