@@ -1,5 +1,11 @@
 import com.android.build.api.dsl.AaptOptions
-
+import java.util.Properties
+import java.io.FileInputStream
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(FileInputStream(localPropertiesFile))
+}
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -20,6 +26,17 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField(
+            "String",
+            "SUPABASE_URL",
+            "\"${localProperties.getProperty("SUPABASE_URL")}\""
+        )
+        buildConfigField(
+            "String",
+            "SUPABASE_KEY",
+            "\"${localProperties.getProperty("SUPABASE_KEY")}\""
+        )
     }
 
     buildTypes {
@@ -40,6 +57,8 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
+
     }
 }
 
@@ -75,7 +94,17 @@ dependencies {
 // ML Kit barcode scanning (no extra model download needed)
     implementation("com.google.mlkit:barcode-scanning:17.2.0")
 
+//supabase
+    implementation(platform("io.github.jan-tennert.supabase:bom:2.4.3"))
 
+    // Core and PostgREST (Database)
+    implementation("io.github.jan-tennert.supabase:postgrest-kt")
+
+    // Ktor client engine (required by Supabase)
+    implementation("io.ktor:ktor-client-android:2.3.8")
+
+    // Kotlin Serialization
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
 
     // TFLite
     implementation("org.tensorflow:tensorflow-lite:2.14.0")
