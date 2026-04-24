@@ -54,6 +54,7 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import android.util.Log
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -216,6 +217,13 @@ private fun ScannerContent(navController: NavController) {
     var isLookingUp   by remember { mutableStateOf(false) }
     var cameraReady   by remember { mutableStateOf(false) }
 
+    // Stored refs for camera + executor so they can be explicitly released on dispose.
+    // Without these, a new executor is leaked every time the screen is opened and the
+    // old one keeps running against an already-closed barcodeScanner — this is what
+    // caused the intermittent crash on subsequent opens of the QR scanner screen.
+    var cameraProviderRef   by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+    var analysisExecutorRef by remember { mutableStateOf<ExecutorService?>(null) }
+
     // Surface a Supabase init failure immediately so the user isn't left staring
     // at a spinner. The QR frame will still show and camera will still work — the
     // error only appears when a code is actually scanned.
@@ -231,7 +239,24 @@ private fun ScannerContent(navController: NavController) {
 
     // isScanningRef — stops the ML Kit analyzer once a QR is decoded.
     val isScanningRef = remember { AtomicBoolean(true) }
-    DisposableEffect(Unit) { onDispose { isScanningRef.set(false) } }
+
+    // On dispose: stop the analyzer, unbind the camera, and shut down the executor.
+    // This mirrors the cleanup in NewBoxScreen and prevents the thread + camera leak
+    // that caused intermittent crashes on re-opening the scanner.
+    DisposableEffect(Unit) {
+        onDispose {
+            Log.d(TAG, "ScannerContent: disposing — stopping analyzer and releasing camera")
+            isScanningRef.set(false)
+            try { cameraProviderRef?.unbindAll() } catch (e: Exception) {
+                Log.w(TAG, "unbindAll failed on dispose: ${e.message}")
+            }
+            try { analysisExecutorRef?.shutdownNow() } catch (e: Exception) {
+                Log.w(TAG, "shutdownNow failed on dispose: ${e.message}")
+            }
+            cameraProviderRef   = null
+            analysisExecutorRef = null
+        }
+    }
 
     // isScreenResumedRef — pauses the analyzer while the screen is not RESUMED
     // (e.g. when QrDisplayScreen is on top). Also resets scan state when the
@@ -396,7 +421,9 @@ private fun ScannerContent(navController: NavController) {
                 val executor = ContextCompat.getMainExecutor(ctx)
                 // Dedicated background executor for image analysis so bitmap
                 // conversion and ML Kit scanning never run on the main thread.
+                // Stored in analysisExecutorRef so it is shut down on dispose.
                 val analysisExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+                analysisExecutorRef = analysisExecutor
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
 
                 cameraProviderFuture.addListener({
@@ -406,6 +433,8 @@ private fun ScannerContent(navController: NavController) {
                         Log.e(TAG, "Failed to obtain CameraProvider: ${e.message}", e)
                         return@addListener
                     }
+                    // Store so onDispose can call unbindAll()
+                    cameraProviderRef = cameraProvider
 
                     val preview = Preview.Builder().build().also {
                         it.setSurfaceProvider(previewView.surfaceProvider)

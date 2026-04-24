@@ -503,7 +503,20 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         // Dynamic bounding-box overlay — one set of corner brackets per detection,
         // sized and positioned to match the actual object in the viewfinder.
         if (detectionBoxes.isNotEmpty()) {
+            // Capture density outside the drawing lambda (composition value)
             val density = androidx.compose.ui.platform.LocalDensity.current
+            // Reusable Paint for all label draws in this frame — created once here,
+            // not inside the forEach, to avoid allocating one per detection per frame.
+            val labelPaint = remember {
+                android.graphics.Paint().apply {
+                    color          = android.graphics.Color.WHITE
+                    isFakeBoldText = true
+                    isAntiAlias    = true
+                }
+            }
+            // Update text size whenever density changes (e.g. font-scale change)
+            labelPaint.textSize = with(density) { 9.sp.toPx() }
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -514,6 +527,10 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                         val vfTop    = topInsetDp.toPx()
                         val vfWidth  = size.width - vfLeft * 2
                         val vfHeight = size.height - vfTop - bottomInsetDp.toPx()
+
+                        val minCLenPx = with(density) { 12.dp.toPx() }
+                        val labelOffPx = with(density) { 6.dp.toPx() }
+                        val labelMinY  = vfTop + with(density) { 4.dp.toPx() }
 
                         val alpha = if (scanFlashActive) 1f else flashAnim
                         val col   = boxColor.copy(alpha = alpha)
@@ -530,47 +547,39 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                             val right  = cx + bw / 2f
                             val bottom = cy + bh / 2f
 
-                            // Corner bracket length: 20 % of the shorter side, min 12 dp
-                            val minDpPx = with(density) { 12.dp.toPx() }
-                            val cLen    = (minOf(bw, bh) * 0.22f).coerceAtLeast(minDpPx)
+                            // Corner bracket length: 22 % of the shorter side, min 12 dp
+                            val cLen = (minOf(bw, bh) * 0.22f).coerceAtLeast(minCLenPx)
 
                             // Glow pass on flash
                             if (scanFlashActive) {
                                 val glowCol = boxColor.copy(alpha = 0.35f)
                                 val gsw     = sw * 3.8f
-                                drawLine(glowCol, Offset(left,          top + cLen), Offset(left,         top),    gsw)
-                                drawLine(glowCol, Offset(left,          top),        Offset(left + cLen,  top),    gsw)
-                                drawLine(glowCol, Offset(right,         top + cLen), Offset(right,        top),    gsw)
-                                drawLine(glowCol, Offset(right - cLen,  top),        Offset(right,        top),    gsw)
-                                drawLine(glowCol, Offset(left,          bottom - cLen), Offset(left,      bottom), gsw)
-                                drawLine(glowCol, Offset(left,          bottom),     Offset(left + cLen,  bottom), gsw)
-                                drawLine(glowCol, Offset(right,         bottom - cLen), Offset(right,     bottom), gsw)
-                                drawLine(glowCol, Offset(right - cLen,  bottom),     Offset(right,        bottom), gsw)
+                                drawLine(glowCol, Offset(left,          top + cLen),    Offset(left,         top),    gsw)
+                                drawLine(glowCol, Offset(left,          top),           Offset(left + cLen,  top),    gsw)
+                                drawLine(glowCol, Offset(right,         top + cLen),    Offset(right,        top),    gsw)
+                                drawLine(glowCol, Offset(right - cLen,  top),           Offset(right,        top),    gsw)
+                                drawLine(glowCol, Offset(left,          bottom - cLen), Offset(left,         bottom), gsw)
+                                drawLine(glowCol, Offset(left,          bottom),        Offset(left + cLen,  bottom), gsw)
+                                drawLine(glowCol, Offset(right,         bottom - cLen), Offset(right,        bottom), gsw)
+                                drawLine(glowCol, Offset(right - cLen,  bottom),        Offset(right,        bottom), gsw)
                             }
 
                             // Corner brackets
-                            drawLine(col, Offset(left,         top + cLen), Offset(left,        top),    sw)
-                            drawLine(col, Offset(left,         top),        Offset(left + cLen, top),    sw)
-                            drawLine(col, Offset(right,        top + cLen), Offset(right,       top),    sw)
-                            drawLine(col, Offset(right - cLen, top),        Offset(right,       top),    sw)
-                            drawLine(col, Offset(left,         bottom - cLen), Offset(left,     bottom), sw)
-                            drawLine(col, Offset(left,         bottom),     Offset(left + cLen, bottom), sw)
-                            drawLine(col, Offset(right,        bottom - cLen), Offset(right,    bottom), sw)
-                            drawLine(col, Offset(right - cLen, bottom),     Offset(right,       bottom), sw)
+                            drawLine(col, Offset(left,         top + cLen),    Offset(left,        top),    sw)
+                            drawLine(col, Offset(left,         top),           Offset(left + cLen, top),    sw)
+                            drawLine(col, Offset(right,        top + cLen),    Offset(right,       top),    sw)
+                            drawLine(col, Offset(right - cLen, top),           Offset(right,       top),    sw)
+                            drawLine(col, Offset(left,         bottom - cLen), Offset(left,        bottom), sw)
+                            drawLine(col, Offset(left,         bottom),        Offset(left + cLen, bottom), sw)
+                            drawLine(col, Offset(right,        bottom - cLen), Offset(right,       bottom), sw)
+                            drawLine(col, Offset(right - cLen, bottom),        Offset(right,       bottom), sw)
 
                             // Centre dot
                             drawCircle(boxColor, 3.dp.toPx(), Offset(cx, cy), alpha = alpha)
 
-                            // Label above the top-left corner
-                            val labelText = box.label.uppercase()
-                            val paint = android.graphics.Paint().apply {
-                                color     = android.graphics.Color.WHITE
-                                textSize  = with(density) { 9.sp.toPx() }
-                                isFakeBoldText = true
-                                isAntiAlias    = true
-                            }
-                            val labelY = (top - with(density) { 6.dp.toPx() }).coerceAtLeast(vfTop + with(density) { 4.dp.toPx() })
-                            drawContext.canvas.nativeCanvas.drawText(labelText, left, labelY, paint)
+                            // Label above the top-left corner (reuses labelPaint)
+                            val labelY = (top - labelOffPx).coerceAtLeast(labelMinY)
+                            drawContext.canvas.nativeCanvas.drawText(box.label.uppercase(), left, labelY, labelPaint)
                         }
                     }
             )
