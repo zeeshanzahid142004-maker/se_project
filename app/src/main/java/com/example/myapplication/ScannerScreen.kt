@@ -53,10 +53,14 @@ import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
+import android.util.Log
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private const val TAG = "ScannerScreen"
 
 private val tealS    = Color(0xFF2DD4BF)
 private val redS     = Color(0xFFE53E3E)
@@ -76,6 +80,7 @@ private data class ScanErrorInfo(
 @kotlin.OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun ScannerScreen(navController: NavController) {
+    Log.d(TAG, "ScannerScreen: composing")
 
     // ── Runtime camera permission ──────────────────────────────────────────
     val cameraPermission = rememberPermissionState(android.Manifest.permission.CAMERA)
@@ -83,24 +88,26 @@ fun ScannerScreen(navController: NavController) {
     // Request permission on first launch
     LaunchedEffect(Unit) {
         if (!cameraPermission.status.isGranted) {
+            Log.d(TAG, "ScannerScreen: requesting camera permission")
             cameraPermission.launchPermissionRequest()
         }
     }
 
     when {
         cameraPermission.status.isGranted -> {
+            Log.d(TAG, "ScannerScreen: permission granted — showing ScannerContent")
             // Permission granted — show the real scanner
             ScannerContent(navController = navController)
         }
         cameraPermission.status.shouldShowRationale -> {
-            // User denied once — explain why we need it
+            Log.d(TAG, "ScannerScreen: showing permission rationale (denied once)")
             PermissionRationaleScreen(
                 onRequest = { cameraPermission.launchPermissionRequest() },
                 onBack    = { navController.popBackStack() }
             )
         }
         else -> {
-            // First request or permanently denied
+            Log.d(TAG, "ScannerScreen: showing permission rationale (first-time or permanently denied)")
             PermissionRationaleScreen(
                 onRequest = { cameraPermission.launchPermissionRequest() },
                 onBack    = { navController.popBackStack() }
@@ -185,11 +192,23 @@ private fun PermissionRationaleScreen(onRequest: () -> Unit, onBack: () -> Unit)
 @OptIn(ExperimentalGetImage::class)
 @Composable
 private fun ScannerContent(navController: NavController) {
+    Log.d(TAG, "ScannerContent: composing")
 
     val context        = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope          = rememberCoroutineScope()
-    val supabaseRepo   = remember { SupabaseRepository() }
+
+    // Defensive init: SupabaseRepository accesses SupabaseModule.client during
+    // construction. If the Supabase singleton failed to initialize (e.g. missing
+    // or malformed URL/key), this would otherwise crash the composable before any
+    // UI is shown. Catch the error here so we can log it and surface it gracefully.
+    val supabaseRepo = remember {
+        runCatching { SupabaseRepository() }
+            .onFailure { e ->
+                Log.e(TAG, "ScannerContent: SupabaseRepository init failed — ${e::class.simpleName}: ${e.message}", e)
+            }
+            .getOrNull()
+    }
 
     var scannedValue  by remember { mutableStateOf<String?>(null) }
     var navigated     by remember { mutableStateOf(false) }
@@ -198,9 +217,46 @@ private fun ScannerContent(navController: NavController) {
     var isLookingUp   by remember { mutableStateOf(false) }
     var cameraReady   by remember { mutableStateOf(false) }
 
+    // Stored refs for camera + executor so they can be explicitly released on dispose.
+    // Without these, a new executor is leaked every time the screen is opened and the
+    // old one keeps running against an already-closed barcodeScanner — this is what
+    // caused the intermittent crash on subsequent opens of the QR scanner screen.
+    var cameraProviderRef   by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+    var analysisExecutorRef by remember { mutableStateOf<ExecutorService?>(null) }
+
+    // Surface a Supabase init failure immediately so the user isn't left staring
+    // at a spinner. The QR frame will still show and camera will still work — the
+    // error only appears when a code is actually scanned.
+    LaunchedEffect(Unit) {
+        if (supabaseRepo == null && scanError == null) {
+            scanError = ScanErrorInfo(
+                title    = "⚠ Service Unavailable",
+                subtitle = "Could not connect to the database. Check your network and restart the app."
+            )
+            Log.e(TAG, "ScannerContent: supabaseRepo is null — scanning is disabled until restart")
+        }
+    }
+
     // isScanningRef — stops the ML Kit analyzer once a QR is decoded.
     val isScanningRef = remember { AtomicBoolean(true) }
-    DisposableEffect(Unit) { onDispose { isScanningRef.set(false) } }
+
+    // On dispose: stop the analyzer, unbind the camera, and shut down the executor.
+    // This mirrors the cleanup in NewBoxScreen and prevents the thread + camera leak
+    // that caused intermittent crashes on re-opening the scanner.
+    DisposableEffect(Unit) {
+        onDispose {
+            Log.d(TAG, "ScannerContent: disposing — stopping analyzer and releasing camera")
+            isScanningRef.set(false)
+            try { cameraProviderRef?.unbindAll() } catch (e: Exception) {
+                Log.w(TAG, "unbindAll failed on dispose: ${e.message}")
+            }
+            try { analysisExecutorRef?.shutdownNow() } catch (e: Exception) {
+                Log.w(TAG, "shutdownNow failed on dispose: ${e.message}")
+            }
+            cameraProviderRef   = null
+            analysisExecutorRef = null
+        }
+    }
 
     // isScreenResumedRef — pauses the analyzer while the screen is not RESUMED
     // (e.g. when QrDisplayScreen is on top). Also resets scan state when the
@@ -238,8 +294,21 @@ private fun ScannerContent(navController: NavController) {
     LaunchedEffect(scannedValue) {
         val raw = scannedValue ?: return@LaunchedEffect
         if (navigated) return@LaunchedEffect
+
+        // Guard: if Supabase failed to initialize we can't do a lookup
+        if (supabaseRepo == null) {
+            Log.e(TAG, "LaunchedEffect(scannedValue): supabaseRepo is null, cannot look up QR")
+            scanError = ScanErrorInfo(
+                title    = "⚠ Service Unavailable",
+                subtitle = "Database connection is not available. Please restart the app."
+            )
+            scannedValue = null
+            return@LaunchedEffect
+        }
+
         navigated    = true
         isLookingUp  = true
+        Log.d(TAG, "LaunchedEffect(scannedValue): looking up raw='${raw.take(60)}'")
 
         scope.launch(Dispatchers.IO) {
             val isBoxScanFormat = raw.contains("\"boxId\":")
@@ -282,7 +351,7 @@ private fun ScannerContent(navController: NavController) {
                     }
                 }
             } catch (e: Exception) {
-                android.util.Log.e("ScannerScreen", "Supabase fetch failed: ${e.message}", e)
+                Log.e(TAG, "Supabase fetch failed: ${e::class.simpleName} — ${e.message}", e)
                 withContext(Dispatchers.Main) {
                     scanError = ScanErrorInfo(
                         title    = "⚠ Connection Error",
@@ -326,30 +395,46 @@ private fun ScannerContent(navController: NavController) {
     )
 
     val barcodeScanner: BarcodeScanner = remember {
+        Log.d(TAG, "Initializing ML Kit barcode scanner")
         BarcodeScanning.getClient(
             BarcodeScannerOptions.Builder()
                 .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
                 .build()
         )
     }
-    DisposableEffect(Unit) { onDispose { barcodeScanner.close() } }
+    DisposableEffect(Unit) {
+        onDispose {
+            Log.d(TAG, "Closing barcode scanner and stopping analysis")
+            barcodeScanner.close()
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF080C10))) {
 
         // ── CameraX PreviewView ────────────────────────────────────────────
         AndroidView(
             factory = { ctx ->
+                Log.d(TAG, "AndroidView factory: creating PreviewView")
                 val previewView = PreviewView(ctx).apply {
                     scaleType = PreviewView.ScaleType.FILL_CENTER
                 }
                 val executor = ContextCompat.getMainExecutor(ctx)
                 // Dedicated background executor for image analysis so bitmap
                 // conversion and ML Kit scanning never run on the main thread.
+                // Stored in analysisExecutorRef so it is shut down on dispose.
                 val analysisExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+                analysisExecutorRef = analysisExecutor
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
 
                 cameraProviderFuture.addListener({
-                    val cameraProvider = cameraProviderFuture.get()
+                    val cameraProvider = try {
+                        cameraProviderFuture.get()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to obtain CameraProvider: ${e.message}", e)
+                        return@addListener
+                    }
+                    // Store so onDispose can call unbindAll()
+                    cameraProviderRef = cameraProvider
 
                     val preview = Preview.Builder().build().also {
                         it.setSurfaceProvider(previewView.surfaceProvider)
@@ -381,39 +466,60 @@ private fun ScannerContent(navController: NavController) {
                                     val cropX = ((imgW - cropW) / 2).coerceAtLeast(0)
                                     val cropY = ((imgH - cropH) / 2).coerceAtLeast(0)
 
-                                    // Convert YUV ImageProxy → Bitmap, rotate, crop
-                                    val fullBitmap = imageProxy.toBitmap()
-                                    val matrix = android.graphics.Matrix().apply {
-                                        postRotate(rotation.toFloat())
-                                    }
-                                    val rotatedBitmap = android.graphics.Bitmap.createBitmap(
-                                        fullBitmap, 0, 0,
-                                        fullBitmap.width, fullBitmap.height,
-                                        matrix, true
-                                    )
-                                    val croppedBitmap = android.graphics.Bitmap.createBitmap(
-                                        rotatedBitmap, cropX, cropY, cropW, cropH
-                                    )
+                                    // Wrap all bitmap ops so imageProxy is always closed on error
+                                    var fullBitmap: android.graphics.Bitmap? = null
+                                    var rotatedBitmap: android.graphics.Bitmap? = null
+                                    var croppedBitmap: android.graphics.Bitmap? = null
+                                    try {
+                                        // Convert YUV ImageProxy → Bitmap, rotate, crop
+                                        fullBitmap = imageProxy.toBitmap()
+                                        val matrix = android.graphics.Matrix().apply {
+                                            postRotate(rotation.toFloat())
+                                        }
+                                        rotatedBitmap = android.graphics.Bitmap.createBitmap(
+                                            fullBitmap, 0, 0,
+                                            fullBitmap.width, fullBitmap.height,
+                                            matrix, true
+                                        )
+                                        croppedBitmap = android.graphics.Bitmap.createBitmap(
+                                            rotatedBitmap, cropX, cropY, cropW, cropH
+                                        )
 
-                                    val inputImage = com.google.mlkit.vision.common.InputImage
-                                        .fromBitmap(croppedBitmap, 0)
+                                        val inputImage = com.google.mlkit.vision.common.InputImage
+                                            .fromBitmap(croppedBitmap, 0)
 
-                                    barcodeScanner.process(inputImage)
-                                        .addOnSuccessListener { barcodes ->
-                                            if (barcodes.isNotEmpty() && isScanningRef.get()) {
-                                                val raw = barcodes.first().rawValue
-                                                if (!raw.isNullOrBlank()) {
-                                                    isScanningRef.set(false)  // stop scanning — QR found
-                                                    scannedValue = raw
+                                        // Capture locals for the async listeners
+                                        val capturedFull    = fullBitmap
+                                        val capturedRotated = rotatedBitmap
+                                        val capturedCropped = croppedBitmap
+
+                                        barcodeScanner.process(inputImage)
+                                            .addOnSuccessListener { barcodes ->
+                                                if (barcodes.isNotEmpty() && isScanningRef.get()) {
+                                                    val raw = barcodes.first().rawValue
+                                                    if (!raw.isNullOrBlank()) {
+                                                        Log.d(TAG, "QR decoded: length=${raw.length}")
+                                                        isScanningRef.set(false)  // stop scanning — QR found
+                                                        scannedValue = raw
+                                                    }
                                                 }
                                             }
-                                        }
-                                        .addOnCompleteListener {
-                                            croppedBitmap.recycle()
-                                            rotatedBitmap.recycle()
-                                            fullBitmap.recycle()
-                                            imageProxy.close()
-                                        }
+                                            .addOnFailureListener { e ->
+                                                Log.e(TAG, "ML Kit barcode scan failed: ${e.message}", e)
+                                            }
+                                            .addOnCompleteListener {
+                                                capturedCropped.recycle()
+                                                capturedRotated.recycle()
+                                                capturedFull.recycle()
+                                                imageProxy.close()
+                                            }
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Frame processing failed (rotation=$rotation, crop=${cropW}x${cropH}): ${e.message}", e)
+                                        croppedBitmap?.recycle()
+                                        rotatedBitmap?.recycle()
+                                        fullBitmap?.recycle()
+                                        imageProxy.close()
+                                    }
                                 } else {
                                     imageProxy.close()
                                 }
@@ -429,6 +535,8 @@ private fun ScannerContent(navController: NavController) {
                             preview,
                             imageAnalysis
                         )
+                    }.onFailure { e ->
+                        Log.e(TAG, "Camera binding failed: ${e.message}", e)
                     }
                     // Signal that camera is bound and the UI can proceed
                     cameraReady = true

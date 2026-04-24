@@ -135,6 +135,8 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     val supabaseRepo   = remember { com.example.myapplication.data.SupabaseRepository() }
 
     val detectedItems = remember { mutableStateListOf<DetectedItem>() }
+    // Live bounding boxes from the most recent YOLO inference frame
+    var detectionBoxes by remember { mutableStateOf<List<DetectionBox>>(emptyList()) }
     var showReviewSheet by remember { mutableStateOf(false) }
     var showComplaintSheet by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<SaveErrorInfo?>(null) }
@@ -401,10 +403,14 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                         Log.d(TAG, "Bitmap ready: ${cropped.width}x${cropped.height}, running inference")
 
                                         try {
-                                            val results = currentDetector.detect(cropped)
-                                            Log.d(TAG, "Inference results: $results")
+                                            val boxes = currentDetector.detectBoxes(cropped)
+                                            val results = boxes
+                                                .groupBy { it.label }
+                                                .map { (label, dets) -> DetectedItem(label, dets.size) }
+                                            Log.d(TAG, "Inference: ${boxes.size} detections — ${boxes.map { it.label }}")
                                             mainExecutor.execute {
                                                 if (isScanningRef.get()) {
+                                                    detectionBoxes = boxes
                                                     val hadNew = mergeDetections(detectedItems, results)
                                                     if (hadNew) {
                                                         scanFlashActive = true
@@ -494,57 +500,88 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         // Phase 2: use Animatable-driven scale for the snap-in-pop animation
         val boxScale = boxScaleAnim.value
 
-        if (detectedItems.isNotEmpty()) {
+        // Dynamic bounding-box overlay — one set of corner brackets per detection,
+        // sized and positioned to match the actual object in the viewfinder.
+        if (detectionBoxes.isNotEmpty()) {
+            // Capture density outside the drawing lambda (composition value)
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            // Reusable Paint for all label draws in this frame — created once here,
+            // not inside the forEach, to avoid allocating one per detection per frame.
+            val labelPaint = remember {
+                android.graphics.Paint().apply {
+                    color          = android.graphics.Color.WHITE
+                    isFakeBoldText = true
+                    isAntiAlias    = true
+                }
+            }
+            // Update text size whenever density changes (e.g. font-scale change)
+            labelPaint.textSize = with(density) { 9.sp.toPx() }
+
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = topInsetDp + 24.dp)
-                    .padding(horizontal = 56.dp)
-                    .size(210.dp, 190.dp)
+                    .fillMaxSize()
                     .scale(boxScale)
                     .drawBehind {
-                        val cLen = 30.dp.toPx()
+                        // Viewfinder bounds inside the UI (matching the vignette padding)
+                        val vfLeft   = 4.dp.toPx()
+                        val vfTop    = topInsetDp.toPx()
+                        val vfWidth  = size.width - vfLeft * 2
+                        val vfHeight = size.height - vfTop - bottomInsetDp.toPx()
+
+                        val minCLenPx = with(density) { 12.dp.toPx() }
+                        val labelOffPx = with(density) { 6.dp.toPx() }
+                        val labelMinY  = vfTop + with(density) { 4.dp.toPx() }
+
                         val alpha = if (scanFlashActive) 1f else flashAnim
-                        val col = boxColor.copy(alpha = alpha)
+                        val col   = boxColor.copy(alpha = alpha)
+                        val sw    = boxStrokeWidth
 
-                        // Glow pass (wide, soft stroke behind) during success flash
-                        if (scanFlashActive) {
-                            val glowCol = boxColor.copy(alpha = 0.35f)
-                            val gsw = boxStrokeWidth * 3.8f
-                            drawLine(glowCol, Offset(0f, cLen), Offset(0f, 0f), gsw)
-                            drawLine(glowCol, Offset(0f, 0f), Offset(cLen, 0f), gsw)
-                            drawLine(glowCol, Offset(size.width, cLen), Offset(size.width, 0f), gsw)
-                            drawLine(glowCol, Offset(size.width - cLen, 0f), Offset(size.width, 0f), gsw)
-                            drawLine(glowCol, Offset(0f, size.height - cLen), Offset(0f, size.height), gsw)
-                            drawLine(glowCol, Offset(0f, size.height), Offset(cLen, size.height), gsw)
-                            drawLine(glowCol, Offset(size.width, size.height - cLen), Offset(size.width, size.height), gsw)
-                            drawLine(glowCol, Offset(size.width - cLen, size.height), Offset(size.width, size.height), gsw)
+                        // Draw each detection with its own bracket sized to the bbox
+                        detectionBoxes.forEach { box ->
+                            val cx     = vfLeft + box.cx * vfWidth
+                            val cy     = vfTop  + box.cy * vfHeight
+                            val bw     = box.w * vfWidth
+                            val bh     = box.h * vfHeight
+                            val left   = cx - bw / 2f
+                            val top    = cy - bh / 2f
+                            val right  = cx + bw / 2f
+                            val bottom = cy + bh / 2f
+
+                            // Corner bracket length: 22 % of the shorter side, min 12 dp
+                            val cLen = (minOf(bw, bh) * 0.22f).coerceAtLeast(minCLenPx)
+
+                            // Glow pass on flash
+                            if (scanFlashActive) {
+                                val glowCol = boxColor.copy(alpha = 0.35f)
+                                val gsw     = sw * 3.8f
+                                drawLine(glowCol, Offset(left,          top + cLen),    Offset(left,         top),    gsw)
+                                drawLine(glowCol, Offset(left,          top),           Offset(left + cLen,  top),    gsw)
+                                drawLine(glowCol, Offset(right,         top + cLen),    Offset(right,        top),    gsw)
+                                drawLine(glowCol, Offset(right - cLen,  top),           Offset(right,        top),    gsw)
+                                drawLine(glowCol, Offset(left,          bottom - cLen), Offset(left,         bottom), gsw)
+                                drawLine(glowCol, Offset(left,          bottom),        Offset(left + cLen,  bottom), gsw)
+                                drawLine(glowCol, Offset(right,         bottom - cLen), Offset(right,        bottom), gsw)
+                                drawLine(glowCol, Offset(right - cLen,  bottom),        Offset(right,        bottom), gsw)
+                            }
+
+                            // Corner brackets
+                            drawLine(col, Offset(left,         top + cLen),    Offset(left,        top),    sw)
+                            drawLine(col, Offset(left,         top),           Offset(left + cLen, top),    sw)
+                            drawLine(col, Offset(right,        top + cLen),    Offset(right,       top),    sw)
+                            drawLine(col, Offset(right - cLen, top),           Offset(right,       top),    sw)
+                            drawLine(col, Offset(left,         bottom - cLen), Offset(left,        bottom), sw)
+                            drawLine(col, Offset(left,         bottom),        Offset(left + cLen, bottom), sw)
+                            drawLine(col, Offset(right,        bottom - cLen), Offset(right,       bottom), sw)
+                            drawLine(col, Offset(right - cLen, bottom),        Offset(right,       bottom), sw)
+
+                            // Centre dot
+                            drawCircle(boxColor, 3.dp.toPx(), Offset(cx, cy), alpha = alpha)
+
+                            // Label above the top-left corner (reuses labelPaint)
+                            val labelY = (top - labelOffPx).coerceAtLeast(labelMinY)
+                            drawContext.canvas.nativeCanvas.drawText(box.label.uppercase(), left, labelY, labelPaint)
                         }
-
-                        drawLine(col, Offset(0f, cLen), Offset(0f, 0f), boxStrokeWidth)
-                        drawLine(col, Offset(0f, 0f), Offset(cLen, 0f), boxStrokeWidth)
-                        drawLine(col, Offset(size.width, cLen), Offset(size.width, 0f), boxStrokeWidth)
-                        drawLine(col, Offset(size.width - cLen, 0f), Offset(size.width, 0f), boxStrokeWidth)
-                        drawLine(col, Offset(0f, size.height - cLen), Offset(0f, size.height), boxStrokeWidth)
-                        drawLine(col, Offset(0f, size.height), Offset(cLen, size.height), boxStrokeWidth)
-                        drawLine(col, Offset(size.width, size.height - cLen), Offset(size.width, size.height), boxStrokeWidth)
-                        drawLine(col, Offset(size.width - cLen, size.height), Offset(size.width, size.height), boxStrokeWidth)
-
-                        drawCircle(boxColor, 3.dp.toPx(), Offset(size.width / 2, size.height / 2), alpha = alpha)
                     }
-            )
-
-            Text(
-                "● ${detectedItems.last().label.uppercase()}",
-                color = Color.White.copy(alpha = flashAnim),
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.5.sp,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = topInsetDp + 8.dp)
-                    .background(boxColor.copy(0.75f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 8.dp, vertical = 3.dp)
             )
         }
 
