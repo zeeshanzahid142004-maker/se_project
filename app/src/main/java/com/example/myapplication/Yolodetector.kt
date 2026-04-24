@@ -3,7 +3,8 @@ package com.example.myapplication
 // ─────────────────────────────────────────────────────────────────────────────
 //  YoloDetector.kt
 //  Runs YOLOv8n float32 TFLite model on a cropped Bitmap.
-//  Returns a list of DetectedItem (label + count) for items above threshold.
+//  Returns a list of DetectedItem (label + count) for items above threshold,
+//  or a list of DetectionBox for per-detection bounding boxes.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import android.content.Context
@@ -15,6 +16,26 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
+
+/**
+ * A single detection with normalized bounding box coordinates [0,1] relative
+ * to the bitmap that was passed to [YoloDetector.detectBoxes], plus the
+ * friendly label and confidence score.
+ */
+data class DetectionBox(
+    /** Normalized center-x in [0, 1] relative to the input bitmap width. */
+    val cx: Float,
+    /** Normalized center-y in [0, 1] relative to the input bitmap height. */
+    val cy: Float,
+    /** Normalized box width in [0, 1] relative to the input bitmap width. */
+    val w: Float,
+    /** Normalized box height in [0, 1] relative to the input bitmap height. */
+    val h: Float,
+    /** Human-readable label (may be remapped via [LABEL_MAP]). */
+    val label: String,
+    /** Detection confidence in [0, 1]. */
+    val confidence: Float
+)
 
 // COCO class names — YOLOv8n outputs 80 classes in this order
 private val COCO_LABELS = listOf(
@@ -69,28 +90,43 @@ class YoloDetector(context: Context) {
 
     /**
      * Run inference on [bitmap] (should already be cropped to the viewfinder region).
-     * Returns list of DetectedItem with aggregated counts.
+     * Returns one [DetectionBox] per NMS-surviving detection with normalized [0,1]
+     * bounding-box coordinates relative to [bitmap] and the friendly label.
+     *
+     * YOLOv8n outputs cx/cy/w/h in the model's INPUT_SIZE pixel space (0..640).
+     * Dividing by INPUT_SIZE converts them to the [0,1] range used by the caller.
      */
-    fun detect(bitmap: Bitmap): List<DetectedItem> {
+    fun detectBoxes(bitmap: Bitmap): List<DetectionBox> {
         val resized  = resizeBitmap(bitmap, INPUT_SIZE, INPUT_SIZE)
         val input    = bitmapToBuffer(resized)
 
-        // YOLOv8n output shape: [1, 84, 8400]
-        // 84 = 4 (box) + 80 (class scores)
+        // YOLOv8n output shape: [1, 84, 8400]  (4 box coords + 80 class scores)
         val rawOutput = Array(1) { Array(84) { FloatArray(MAX_DETECTIONS) } }
         interpreter.run(input, rawOutput)
 
         val detections = parseOutput(rawOutput[0])
-        val after_nms  = nms(detections)
-
-        // Aggregate by label
-        val counts = mutableMapOf<String, Int>()
-        after_nms.forEach { det ->
-            val cocoLabel   = COCO_LABELS.getOrElse(det.classId) { "unknown" }
-            val friendlyLabel = LABEL_MAP[cocoLabel] ?: cocoLabel
-            counts[friendlyLabel] = (counts[friendlyLabel] ?: 0) + 1
+        return nms(detections).map { det ->
+            val cocoLabel = COCO_LABELS.getOrElse(det.classId) { "unknown" }
+            DetectionBox(
+                cx         = det.cx / INPUT_SIZE,
+                cy         = det.cy / INPUT_SIZE,
+                w          = det.w  / INPUT_SIZE,
+                h          = det.h  / INPUT_SIZE,
+                label      = LABEL_MAP[cocoLabel] ?: cocoLabel,
+                confidence = det.confidence
+            )
         }
+    }
 
+    /**
+     * Run inference on [bitmap] and return aggregated item counts.
+     * Delegates to [detectBoxes] so logic is kept in one place.
+     */
+    fun detect(bitmap: Bitmap): List<DetectedItem> {
+        val counts = mutableMapOf<String, Int>()
+        detectBoxes(bitmap).forEach { box ->
+            counts[box.label] = (counts[box.label] ?: 0) + 1
+        }
         return counts.map { (label, count) -> DetectedItem(label, count) }
     }
 
