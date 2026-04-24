@@ -43,11 +43,14 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -522,7 +525,11 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 modifier = Modifier
                     .fillMaxSize()
                     .scale(boxScale)
+                    .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
                     .drawBehind {
+                        // Explicitly clear previous overlay pixels before drawing this frame.
+                        drawRect(Color.Transparent, blendMode = BlendMode.Clear)
+
                         // Viewfinder bounds inside the UI (matching the vignette padding)
                         val vfLeft   = 4.dp.toPx()
                         val vfTop    = topInsetDp.toPx()
@@ -531,7 +538,10 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
 
                         val minCLenPx = with(density) { 12.dp.toPx() }
                         val labelOffPx = with(density) { 6.dp.toPx() }
-                        val labelMinY  = vfTop + with(density) { 4.dp.toPx() }
+                        val labelTopPad = with(density) { 4.dp.toPx() }
+                        val labelPadX = with(density) { 6.dp.toPx() }
+                        val labelPadY = with(density) { 4.dp.toPx() }
+                        val labelCorner = with(density) { 4.dp.toPx() }
 
                         val alpha = if (scanFlashActive) 1f else flashAnim
                         val col   = boxColor.copy(alpha = alpha)
@@ -578,9 +588,31 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                             // Centre dot
                             drawCircle(boxColor, 3.dp.toPx(), Offset(cx, cy), alpha = alpha)
 
-                            // Label above the top-left corner (reuses labelPaint)
-                            val labelY = (top - labelOffPx).coerceAtLeast(labelMinY)
-                            drawContext.canvas.nativeCanvas.drawText(box.label.uppercase(), left, labelY, labelPaint)
+                            // Label above top-left corner with dynamic background.
+                            val labelText = box.label.uppercase()
+                            val textW = labelPaint.measureText(labelText)
+                            val fm = labelPaint.fontMetrics
+                            val minBaseline = vfTop + labelTopPad - fm.ascent + labelPadY
+                            val baselineY = (top - labelOffPx).coerceAtLeast(minBaseline)
+
+                            val bgW = textW + labelPadX * 2f
+                            val bgH = (fm.descent - fm.ascent) + labelPadY * 2f
+                            val maxBgLeft = vfLeft + vfWidth - bgW
+                            val bgLeft = left.coerceIn(vfLeft, maxBgLeft.coerceAtLeast(vfLeft))
+                            val bgTop = (baselineY + fm.ascent - labelPadY).coerceAtLeast(vfTop)
+
+                            drawRoundRect(
+                                color = Color(0xCC000000),
+                                topLeft = Offset(bgLeft, bgTop),
+                                size = Size(bgW, bgH),
+                                cornerRadius = CornerRadius(labelCorner, labelCorner)
+                            )
+                            drawContext.canvas.nativeCanvas.drawText(
+                                labelText,
+                                bgLeft + labelPadX,
+                                baselineY,
+                                labelPaint
+                            )
                         }
                     }
             )
@@ -1251,5 +1283,4 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
         }
     }
 }
-
 
