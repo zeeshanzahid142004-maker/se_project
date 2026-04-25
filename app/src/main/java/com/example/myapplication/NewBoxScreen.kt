@@ -1034,10 +1034,10 @@ private data class FrameProjection(
     val mirrored: Boolean
 )
 
-private class TrackedDetection(
+private data class TrackedDetection(
     val label: String,
-    var box: DetectionBox,
-    var lastSeenMs: Long
+    val box: DetectionBox,
+    val lastSeenMs: Long
 )
 
 private data class TemporalDebounceResult(
@@ -1096,17 +1096,22 @@ private fun applyTemporalDebounce(
     val visible = mutableListOf<DetectionBox>()
     val newlyRegistered = mutableListOf<DetectionBox>()
 
-    boxes.sortedByDescending { it.confidence }.forEach { box ->
-        val matchingTrack = tracks
+    val sortedBoxes = boxes.sortedByDescending { it.confidence }
+    for (box in sortedBoxes) {
+        val matchingIndex = tracks.indices
             .asSequence()
-            .filter { it.label == box.label }
-            .maxByOrNull { detectionIoU(it.box, box) }
+            .filter { tracks[it].label == box.label }
+            .maxByOrNull { detectionIoU(tracks[it].box, box) }
 
-        if (matchingTrack != null && detectionIoU(matchingTrack.box, box) >= iouThreshold) {
-            matchingTrack.box = box
-            matchingTrack.lastSeenMs = nowMs
+        if (matchingIndex != null &&
+            detectionIoU(tracks[matchingIndex].box, box) >= iouThreshold
+        ) {
+            tracks[matchingIndex] = tracks[matchingIndex].copy(
+                box = box,
+                lastSeenMs = nowMs
+            )
             visible.add(box)
-            return@forEach
+            continue
         }
 
         tracks.add(
