@@ -1045,6 +1045,9 @@ private data class TemporalDebounceResult(
     val newlyRegistered: List<DetectionBox>
 )
 
+private const val COOLDOWN_CLEANUP_MULTIPLIER = 2L
+private const val COOLDOWN_SPATIAL_GRID_BINS = 8f
+
 private fun applySameLabelNms(
     boxes: List<DetectionBox>,
     iouThreshold: Float
@@ -1072,7 +1075,9 @@ private fun applyTemporalDebounce(
     staleTrackMs: Long
 ): TemporalDebounceResult {
     tracks.removeAll { nowMs - it.lastSeenMs > staleTrackMs }
-    cooldownMap.entries.removeAll { nowMs - it.value > cooldownMs * 2 }
+    cooldownMap.entries.removeAll {
+        nowMs - it.value > cooldownMs * COOLDOWN_CLEANUP_MULTIPLIER
+    }
 
     val visible = mutableListOf<DetectionBox>()
     val newlyRegistered = mutableListOf<DetectionBox>()
@@ -1099,7 +1104,9 @@ private fun applyTemporalDebounce(
         )
         visible.add(box)
 
-        val cooldownKey = "${box.label}:${(box.cx * 8f).toInt()}:${(box.cy * 8f).toInt()}"
+        val cooldownKey = "${box.label}:" +
+            "${(box.cx * COOLDOWN_SPATIAL_GRID_BINS).toInt()}:" +
+            "${(box.cy * COOLDOWN_SPATIAL_GRID_BINS).toInt()}"
         val lastRegistered = cooldownMap[cooldownKey]
         if (lastRegistered == null || nowMs - lastRegistered >= cooldownMs) {
             cooldownMap[cooldownKey] = nowMs
