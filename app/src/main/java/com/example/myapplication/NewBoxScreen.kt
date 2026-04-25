@@ -24,6 +24,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -178,6 +179,16 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         imageAnalysisRef = null
         analysisExecutorRef = null
         cameraReady = false
+    }
+
+    fun addItemToList(item: DetectedItem) {
+        val index = detectedItems.indexOfFirst { it.label == item.label }
+        if (index >= 0) {
+            val existing = detectedItems[index]
+            detectedItems[index] = existing.copy(count = existing.count + item.count)
+        } else {
+            detectedItems.add(item)
+        }
     }
 
     fun launchSave(boxName: String, itemsSnapshot: List<DetectedItem>) {
@@ -440,8 +451,8 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                                         tracks = temporalTracks,
                                                         cooldownMap = temporalCooldownMap,
                                                         nowMs = System.currentTimeMillis(),
-                                                        iouThreshold = 0.50f,
-                                                        cooldownMs = 1200L,
+                                                        iouThreshold = 0.45f,
+                                                        cooldownMs = 900L,
                                                         staleTrackMs = 2000L
                                                     )
 
@@ -461,15 +472,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                                             .groupingBy { it.label }
                                                             .eachCount()
                                                         increments.forEach { (label, increment) ->
-                                                            val index = detectedItems.indexOfFirst { it.label == label }
-                                                            if (index >= 0) {
-                                                                val existing = detectedItems[index]
-                                                                detectedItems[index] = existing.copy(
-                                                                    count = existing.count + increment
-                                                                )
-                                                            } else {
-                                                                detectedItems.add(DetectedItem(label, increment))
-                                                            }
+                                                            addItemToList(DetectedItem(label, increment))
                                                         }
                                                         scanFlashActive = true
                                                     }
@@ -575,11 +578,11 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             // Update text size whenever density changes (e.g. font-scale change)
             labelPaint.textSize = with(density) { 9.sp.toPx() }
 
-            Box(
+            Canvas(
                 modifier = Modifier
                     .fillMaxSize()
                     .scale(boxScale)
-                    .drawBehind {
+            ) {
                         // Viewfinder bounds inside the UI (matching the vignette padding)
                         val overlayLeft = sideInsetDp.toPx()
                         val overlayTop = topInsetDp.toPx()
@@ -597,7 +600,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                         val col   = boxColor.copy(alpha = alpha)
                         val sw    = boxStrokeWidth
                         val projection = frameProjection
-                        if (projection == null) return@drawBehind
+                        if (projection == null) return@Canvas
 
                         val imageW = projection.imageWidth.toFloat()
                         val imageH = projection.imageHeight.toFloat()
@@ -610,17 +613,21 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                         val translateX = ((imageW * scaleFactor) - size.width) / 2f
                         val translateY = ((imageH * scaleFactor) - size.height) / 2f
 
+                        val modelInputSize = 640f
+
                         // Draw each detection with its own bracket sized to the bbox
                         detectionBoxes.forEach { box ->
-                            val cropLeftNorm = (box.cx - box.w / 2f).coerceIn(0f, 1f)
-                            val cropTopNorm = (box.cy - box.h / 2f).coerceIn(0f, 1f)
-                            val cropRightNorm = (box.cx + box.w / 2f).coerceIn(0f, 1f)
-                            val cropBottomNorm = (box.cy + box.h / 2f).coerceIn(0f, 1f)
+                            // Convert normalized [0,1] detection to model-pixel coordinates.
+                            val modelLeft = ((box.cx - box.w / 2f).coerceIn(0f, 1f)) * modelInputSize
+                            val modelTop = ((box.cy - box.h / 2f).coerceIn(0f, 1f)) * modelInputSize
+                            val modelRight = ((box.cx + box.w / 2f).coerceIn(0f, 1f)) * modelInputSize
+                            val modelBottom = ((box.cy + box.h / 2f).coerceIn(0f, 1f)) * modelInputSize
 
-                            val imageLeft = cropX + (cropLeftNorm * cropW)
-                            val imageTop = cropY + (cropTopNorm * cropH)
-                            val imageRight = cropX + (cropRightNorm * cropW)
-                            val imageBottom = cropY + (cropBottomNorm * cropH)
+                            // Map model-pixel coordinates to full image coordinates using crop offsets.
+                            val imageLeft = cropX + (modelLeft / modelInputSize) * cropW
+                            val imageTop = cropY + (modelTop / modelInputSize) * cropH
+                            val imageRight = cropX + (modelRight / modelInputSize) * cropW
+                            val imageBottom = cropY + (modelBottom / modelInputSize) * cropH
 
                             val leftUnmirrored = imageLeft * scaleFactor - translateX
                             val top = imageTop * scaleFactor - translateY
@@ -673,17 +680,19 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                             // Centre dot
                             drawCircle(boxColor, 3.dp.toPx(), Offset(cx, cy), alpha = alpha)
 
-                            // Label above top-left corner with dynamic background.
+                            // Label above this detection's top-left corner.
                             val labelText = box.label.uppercase()
                             val textW = labelPaint.measureText(labelText)
                             val fm = labelPaint.fontMetrics
                             val minBaseline = overlayTop + labelTopPad - fm.ascent + labelPadY
-                            val baselineY = (top - labelOffPx).coerceAtLeast(minBaseline)
+                            val rectTop = top
+                            val rectLeft = left
+                            val baselineY = (rectTop - labelOffPx).coerceAtLeast(minBaseline)
 
                             val bgW = textW + labelPadX * 2f
                             val bgH = (fm.descent - fm.ascent) + labelPadY * 2f
                             val maxBgLeft = overlayRight - bgW
-                            val bgLeft = left.coerceIn(overlayLeft, maxBgLeft.coerceAtLeast(overlayLeft))
+                            val bgLeft = rectLeft.coerceIn(overlayLeft, maxBgLeft.coerceAtLeast(overlayLeft))
                             val bgTop = (baselineY + fm.ascent - labelPadY).coerceAtLeast(overlayTop)
 
                             drawRoundRect(
@@ -706,7 +715,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                 labelPaint
                             )
                         }
-                    }
             )
         }
 
@@ -1018,13 +1026,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             )
         }
 
-        // ── Full-screen loader while saving to database ────────────────────
-        if (isSaving) {
-            FullScreenLoader(
-                title    = "Creating box…",
-                subtitle = "Saving to database"
-            )
-        }
     }
 }
 
