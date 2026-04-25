@@ -415,11 +415,17 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                                     detectionBoxes = emptyList()
                                                     detectedItems.clear()
                                                 } else {
-                                                    val previous = detectedItems.toList()
-                                                    detectionBoxes = boxes.toList()
+                                                    val hasChanges = detectedItems.size != results.size ||
+                                                        results.any { result ->
+                                                            detectedItems.none { existing ->
+                                                                existing.label == result.label &&
+                                                                    existing.count == result.count
+                                                            }
+                                                        }
+                                                    detectionBoxes = boxes
                                                     detectedItems.clear()
                                                     detectedItems.addAll(results)
-                                                    if (previous != results && results.isNotEmpty()) {
+                                                    if (hasChanges && results.isNotEmpty()) {
                                                         scanFlashActive = true
                                                     }
                                                 }
