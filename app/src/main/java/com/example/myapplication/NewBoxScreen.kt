@@ -1098,14 +1098,14 @@ private fun applyTemporalDebounce(
 
     val sortedBoxes = boxes.sortedByDescending { it.confidence }
     for (box in sortedBoxes) {
-        val matchingIndex = tracks.indices
+        val bestMatch = tracks.indices
             .asSequence()
             .filter { tracks[it].label == box.label }
-            .maxByOrNull { detectionIoU(tracks[it].box, box) }
+            .map { index -> index to detectionIoU(tracks[index].box, box) }
+            .maxByOrNull { it.second }
 
-        if (matchingIndex != null &&
-            detectionIoU(tracks[matchingIndex].box, box) >= iouThreshold
-        ) {
+        if (bestMatch != null && bestMatch.second >= iouThreshold) {
+            val matchingIndex = bestMatch.first
             tracks[matchingIndex] = tracks[matchingIndex].copy(
                 box = box,
                 lastSeenMs = nowMs
@@ -1125,8 +1125,12 @@ private fun applyTemporalDebounce(
 
         val cooldownKey = CooldownKey(
             label = box.label,
-            cellX = (box.cx * COOLDOWN_SPATIAL_GRID_BINS).toInt(),
-            cellY = (box.cy * COOLDOWN_SPATIAL_GRID_BINS).toInt()
+            cellX = (box.cx * COOLDOWN_SPATIAL_GRID_BINS)
+                .toInt()
+                .coerceIn(0, COOLDOWN_SPATIAL_GRID_BINS.toInt() - 1),
+            cellY = (box.cy * COOLDOWN_SPATIAL_GRID_BINS)
+                .toInt()
+                .coerceIn(0, COOLDOWN_SPATIAL_GRID_BINS.toInt() - 1)
         )
         val lastRegistered = cooldownMap[cooldownKey]
         if (lastRegistered == null || nowMs - lastRegistered >= cooldownMs) {
