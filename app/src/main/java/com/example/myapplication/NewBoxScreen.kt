@@ -305,6 +305,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     )
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF080C10))) {
+        val sideInsetDp = 4.dp
         val topInsetDp = 68.dp
         val bottomInsetDp = 120.dp
         val camColor = if (cameraReady) tealN else redN
@@ -375,9 +376,9 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                     val viewH = pv2?.height?.takeIf { it > 0 } ?: imgH
 
                                     val density = ctx.resources.displayMetrics.density
-                                    val hPadPx = 28f * density
-                                    val tPadPx = 120f * density
-                                    val bPadPx = 120f * density
+                                    val hPadPx = sideInsetDp.value * density
+                                    val tPadPx = topInsetDp.value * density
+                                    val bPadPx = bottomInsetDp.value * density
 
                                     val cropW = ((viewW - 2 * hPadPx) * (imgW.toFloat() / viewW))
                                         .toInt().coerceIn(1, imgW)
@@ -532,7 +533,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                     .scale(boxScale)
                     .drawBehind {
                         // Viewfinder bounds inside the UI (matching the vignette padding)
-                        val vfLeft   = 4.dp.toPx()
+                        val vfLeft   = sideInsetDp.toPx()
                         val vfTop    = topInsetDp.toPx()
                         val vfWidth  = size.width - vfLeft * 2
                         val vfHeight = size.height - vfTop - bottomInsetDp.toPx()
@@ -629,7 +630,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 4.dp, end = 4.dp, top = topInsetDp, bottom = bottomInsetDp)
+                .padding(start = sideInsetDp, end = sideInsetDp, top = topInsetDp, bottom = bottomInsetDp)
                 .drawBehind {
                     val bLen = 42.dp.toPx()
                     val sw = 2.6f
