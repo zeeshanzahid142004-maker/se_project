@@ -44,13 +44,11 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -413,10 +411,15 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                                 .map { (label, dets) -> DetectedItem(label, dets.size) }
                                             Log.d(TAG, "Inference: ${boxes.size} detections — ${boxes.map { it.label }}")
                                             mainExecutor.execute {
-                                                if (isScanningRef.get()) {
-                                                    detectionBoxes = boxes
-                                                    val hadNew = mergeDetections(detectedItems, results)
-                                                    if (hadNew) {
+                                                if (!isScanningRef.get()) {
+                                                    detectionBoxes = emptyList()
+                                                    detectedItems.clear()
+                                                } else {
+                                                    val previous = detectedItems.toList()
+                                                    detectionBoxes = boxes.toList()
+                                                    detectedItems.clear()
+                                                    detectedItems.addAll(results)
+                                                    if (previous != results && results.isNotEmpty()) {
                                                         scanFlashActive = true
                                                     }
                                                 }
@@ -525,11 +528,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 modifier = Modifier
                     .fillMaxSize()
                     .scale(boxScale)
-                    .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
                     .drawBehind {
-                        // Explicitly clear previous overlay pixels before drawing this frame.
-                        drawRect(Color.Transparent, blendMode = BlendMode.Clear)
-
                         // Viewfinder bounds inside the UI (matching the vignette padding)
                         val vfLeft   = 4.dp.toPx()
                         val vfTop    = topInsetDp.toPx()
@@ -606,6 +605,13 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                 topLeft = Offset(bgLeft, bgTop),
                                 size = Size(bgW, bgH),
                                 cornerRadius = CornerRadius(labelCorner, labelCorner)
+                            )
+                            drawRoundRect(
+                                color = col,
+                                topLeft = Offset(bgLeft, bgTop),
+                                size = Size(bgW, bgH),
+                                cornerRadius = CornerRadius(labelCorner, labelCorner),
+                                style = Stroke(width = sw.coerceAtLeast(1f))
                             )
                             drawContext.canvas.nativeCanvas.drawText(
                                 labelText,
@@ -944,24 +950,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     }
 }
 
-/** Returns true if any new item was added or an existing item's count increased. */
-private fun mergeDetections(current: SnapshotStateList<DetectedItem>, fresh: List<DetectedItem>): Boolean {
-    var changed = false
-    fresh.forEach { newItem ->
-        val idx = current.indexOfFirst { it.label == newItem.label }
-        if (idx >= 0) {
-            if (newItem.count > current[idx].count) {
-                current[idx] = newItem
-                changed = true
-            }
-        } else {
-            current.add(newItem)
-            changed = true
-        }
-    }
-    return changed
-}
-
 /**
  * Derives a short, human-readable error code from the exception.
  * HTTP errors include the status code (e.g. "HTTP_500").
@@ -1283,4 +1271,3 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
         }
     }
 }
-
