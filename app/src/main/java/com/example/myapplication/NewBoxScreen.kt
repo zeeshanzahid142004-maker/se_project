@@ -148,8 +148,9 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     var useFrontCamera by remember { mutableStateOf(false) }
     // Triggers the flash/haptic/audio feedback on successful scan
     var scanFlashActive by remember { mutableStateOf(false) }
-    // True until the camera and AI model are both ready on first entry
-    var showInitLoader by remember { mutableStateOf(true) }
+    var frameProjection by remember { mutableStateOf<FrameProjection?>(null) }
+    val temporalTracks = remember { mutableStateListOf<TrackedDetection>() }
+    val temporalCooldownMap = remember { mutableStateMapOf<CooldownKey, Long>() }
 
     val isScanningRef = remember { AtomicBoolean(true) }
     val hasNavigatedRef = remember { AtomicBoolean(false) }
@@ -220,13 +221,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             }
         }
         detector = d
-    }
-
-    // Dismiss the init loader once both the camera and AI model are ready
-    LaunchedEffect(cameraReady, detector) {
-        if (cameraReady && detector != null && showInitLoader) {
-            showInitLoader = false
-        }
     }
 
     // Phase 2: Animatable for snap-in-then-pop bounding box scale
@@ -380,12 +374,33 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                     val tPadPx = topInsetDp.value * density
                                     val bPadPx = bottomInsetDp.value * density
 
-                                    val cropW = ((viewW - 2 * hPadPx) * (imgW.toFloat() / viewW))
-                                        .toInt().coerceIn(1, imgW)
-                                    val cropH = ((viewH - tPadPx - bPadPx) * (imgH.toFloat() / viewH))
-                                        .toInt().coerceIn(1, imgH)
-                                    val cropX = ((imgW - cropW) / 2).coerceAtLeast(0)
-                                    val cropY = (tPadPx * (imgH.toFloat() / viewH)).toInt().coerceAtLeast(0)
+                                    val previewScale = maxOf(
+                                        viewW.toFloat() / imgW.toFloat(),
+                                        viewH.toFloat() / imgH.toFloat()
+                                    )
+                                    val scaledImageW = imgW * previewScale
+                                    val scaledImageH = imgH * previewScale
+                                    val previewTranslateX = ((scaledImageW - viewW) / 2f).coerceAtLeast(0f)
+                                    val previewTranslateY = ((scaledImageH - viewH) / 2f).coerceAtLeast(0f)
+
+                                    val vfLeftView = hPadPx
+                                    val vfTopView = tPadPx
+                                    val vfRightView = (viewW - hPadPx).coerceAtLeast(vfLeftView + 1f)
+                                    val vfBottomView = (viewH - bPadPx).coerceAtLeast(vfTopView + 1f)
+
+                                    val cropLeft = ((vfLeftView + previewTranslateX) / previewScale)
+                                        .toInt().coerceIn(0, imgW - 1)
+                                    val cropTop = ((vfTopView + previewTranslateY) / previewScale)
+                                        .toInt().coerceIn(0, imgH - 1)
+                                    val cropRight = ((vfRightView + previewTranslateX) / previewScale)
+                                        .toInt().coerceIn(cropLeft + 1, imgW)
+                                    val cropBottom = ((vfBottomView + previewTranslateY) / previewScale)
+                                        .toInt().coerceIn(cropTop + 1, imgH)
+
+                                    val cropX = cropLeft
+                                    val cropY = cropTop
+                                    val cropW = (cropRight - cropLeft).coerceAtLeast(1)
+                                    val cropH = (cropBottom - cropTop).coerceAtLeast(1)
 
                                     Log.d(TAG, "Crop: imgW=$imgW imgH=$imgH cropX=$cropX cropY=$cropY cropW=$cropW cropH=$cropH")
 
@@ -407,22 +422,55 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
 
                                         try {
                                             val boxes = currentDetector.detectBoxes(cropped)
-                                            val results = boxes
-                                                .groupBy { it.label }
-                                                .map { (label, dets) -> DetectedItem(label, dets.size) }
                                             Log.d(TAG, "Inference: ${boxes.size} detections — ${boxes.map { it.label }}")
                                             mainExecutor.execute {
                                                 if (!isScanningRef.get()) {
                                                     detectionBoxes = emptyList()
                                                     detectedItems.clear()
+                                                    temporalTracks.clear()
+                                                    temporalCooldownMap.clear()
+                                                    frameProjection = null
                                                 } else {
-                                                    val previousByLabel = detectedItems.associate { it.label to it.count }
-                                                    val freshByLabel = results.associate { it.label to it.count }
-                                                    val hasChanges = previousByLabel != freshByLabel
-                                                    detectionBoxes = boxes
-                                                    detectedItems.clear()
-                                                    detectedItems.addAll(results)
-                                                    if (hasChanges && results.isNotEmpty()) {
+                                                    val spatialFiltered = applySameLabelNms(
+                                                        boxes = boxes,
+                                                        iouThreshold = 0.50f
+                                                    )
+                                                    val temporalResult = applyTemporalDebounce(
+                                                        boxes = spatialFiltered,
+                                                        tracks = temporalTracks,
+                                                        cooldownMap = temporalCooldownMap,
+                                                        nowMs = System.currentTimeMillis(),
+                                                        iouThreshold = 0.50f,
+                                                        cooldownMs = 1200L,
+                                                        staleTrackMs = 2000L
+                                                    )
+
+                                                    detectionBoxes = temporalResult.visibleBoxes
+                                                    frameProjection = FrameProjection(
+                                                        imageWidth = imgW,
+                                                        imageHeight = imgH,
+                                                        cropX = cropX,
+                                                        cropY = cropY,
+                                                        cropWidth = safeCropW,
+                                                        cropHeight = safeCropH,
+                                                        mirrored = useFrontCamera
+                                                    )
+
+                                                    if (temporalResult.newlyRegistered.isNotEmpty()) {
+                                                        val increments = temporalResult.newlyRegistered
+                                                            .groupingBy { it.label }
+                                                            .eachCount()
+                                                        increments.forEach { (label, increment) ->
+                                                            val index = detectedItems.indexOfFirst { it.label == label }
+                                                            if (index >= 0) {
+                                                                val existing = detectedItems[index]
+                                                                detectedItems[index] = existing.copy(
+                                                                    count = existing.count + increment
+                                                                )
+                                                            } else {
+                                                                detectedItems.add(DetectedItem(label, increment))
+                                                            }
+                                                        }
                                                         scanFlashActive = true
                                                     }
                                                 }
@@ -533,10 +581,10 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                     .scale(boxScale)
                     .drawBehind {
                         // Viewfinder bounds inside the UI (matching the vignette padding)
-                        val vfLeft   = sideInsetDp.toPx()
-                        val vfTop    = topInsetDp.toPx()
-                        val vfWidth  = size.width - vfLeft * 2
-                        val vfHeight = size.height - vfTop - bottomInsetDp.toPx()
+                        val overlayLeft = sideInsetDp.toPx()
+                        val overlayTop = topInsetDp.toPx()
+                        val overlayRight = size.width - sideInsetDp.toPx()
+                        val overlayBottom = size.height - bottomInsetDp.toPx()
 
                         val minCLenPx = with(density) { 12.dp.toPx() }
                         val labelOffPx = with(density) { 6.dp.toPx() }
@@ -548,17 +596,52 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                         val alpha = if (scanFlashActive) 1f else flashAnim
                         val col   = boxColor.copy(alpha = alpha)
                         val sw    = boxStrokeWidth
+                        val projection = frameProjection
+                        if (projection == null) return@drawBehind
+
+                        val imageW = projection.imageWidth.toFloat()
+                        val imageH = projection.imageHeight.toFloat()
+                        val cropX = projection.cropX.toFloat()
+                        val cropY = projection.cropY.toFloat()
+                        val cropW = projection.cropWidth.toFloat()
+                        val cropH = projection.cropHeight.toFloat()
+
+                        val scaleFactor = maxOf(size.width / imageW, size.height / imageH)
+                        val translateX = ((imageW * scaleFactor) - size.width) / 2f
+                        val translateY = ((imageH * scaleFactor) - size.height) / 2f
 
                         // Draw each detection with its own bracket sized to the bbox
                         detectionBoxes.forEach { box ->
-                            val cx     = vfLeft + box.cx * vfWidth
-                            val cy     = vfTop  + box.cy * vfHeight
-                            val bw     = box.w * vfWidth
-                            val bh     = box.h * vfHeight
-                            val left   = cx - bw / 2f
-                            val top    = cy - bh / 2f
-                            val right  = cx + bw / 2f
-                            val bottom = cy + bh / 2f
+                            val cropLeftNorm = (box.cx - box.w / 2f).coerceIn(0f, 1f)
+                            val cropTopNorm = (box.cy - box.h / 2f).coerceIn(0f, 1f)
+                            val cropRightNorm = (box.cx + box.w / 2f).coerceIn(0f, 1f)
+                            val cropBottomNorm = (box.cy + box.h / 2f).coerceIn(0f, 1f)
+
+                            val imageLeft = cropX + (cropLeftNorm * cropW)
+                            val imageTop = cropY + (cropTopNorm * cropH)
+                            val imageRight = cropX + (cropRightNorm * cropW)
+                            val imageBottom = cropY + (cropBottomNorm * cropH)
+
+                            val leftUnmirrored = imageLeft * scaleFactor - translateX
+                            val top = imageTop * scaleFactor - translateY
+                            val rightUnmirrored = imageRight * scaleFactor - translateX
+                            val bottom = imageBottom * scaleFactor - translateY
+
+                            val left = if (projection.mirrored) {
+                                size.width - rightUnmirrored
+                            } else {
+                                leftUnmirrored
+                            }
+                            val right = if (projection.mirrored) {
+                                size.width - leftUnmirrored
+                            } else {
+                                rightUnmirrored
+                            }
+
+                            val cx = (left + right) / 2f
+                            val cy = (top + bottom) / 2f
+                            val bw = (right - left).coerceAtLeast(1f)
+                            val bh = (bottom - top).coerceAtLeast(1f)
 
                             // Corner bracket length: 22 % of the shorter side, min 12 dp
                             val cLen = (minOf(bw, bh) * 0.22f).coerceAtLeast(minCLenPx)
@@ -594,14 +677,14 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                             val labelText = box.label.uppercase()
                             val textW = labelPaint.measureText(labelText)
                             val fm = labelPaint.fontMetrics
-                            val minBaseline = vfTop + labelTopPad - fm.ascent + labelPadY
+                            val minBaseline = overlayTop + labelTopPad - fm.ascent + labelPadY
                             val baselineY = (top - labelOffPx).coerceAtLeast(minBaseline)
 
                             val bgW = textW + labelPadX * 2f
                             val bgH = (fm.descent - fm.ascent) + labelPadY * 2f
-                            val maxBgLeft = vfLeft + vfWidth - bgW
-                            val bgLeft = left.coerceIn(vfLeft, maxBgLeft.coerceAtLeast(vfLeft))
-                            val bgTop = (baselineY + fm.ascent - labelPadY).coerceAtLeast(vfTop)
+                            val maxBgLeft = overlayRight - bgW
+                            val bgLeft = left.coerceIn(overlayLeft, maxBgLeft.coerceAtLeast(overlayLeft))
+                            val bgTop = (baselineY + fm.ascent - labelPadY).coerceAtLeast(overlayTop)
 
                             drawRoundRect(
                                 color = Color(0xCC000000),
@@ -942,15 +1025,149 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 subtitle = "Saving to database"
             )
         }
+    }
+}
 
-        // ── Init loader — shown until camera + AI model are both ready ─────
-        if (showInitLoader && !isSaving) {
-            FullScreenLoader(
-                title    = "Initializing Scanner",
-                subtitle = "Loading camera & AI model…"
-            )
+private data class FrameProjection(
+    val imageWidth: Int,
+    val imageHeight: Int,
+    val cropX: Int,
+    val cropY: Int,
+    val cropWidth: Int,
+    val cropHeight: Int,
+    val mirrored: Boolean
+)
+
+private data class TrackedDetection(
+    val label: String,
+    val box: DetectionBox,
+    val lastSeenMs: Long
+)
+
+private data class TemporalDebounceResult(
+    val visibleBoxes: List<DetectionBox>,
+    val newlyRegistered: List<DetectionBox>
+)
+
+private data class CooldownKey(
+    val label: String,
+    val cellX: Int,
+    val cellY: Int
+)
+
+private const val COOLDOWN_CLEANUP_MULTIPLIER = 2L
+private const val COOLDOWN_SPATIAL_GRID_BINS = 8f
+
+private fun applySameLabelNms(
+    boxes: List<DetectionBox>,
+    iouThreshold: Float
+): List<DetectionBox> {
+    val sorted = boxes.sortedByDescending { it.confidence }
+    val suppressed = BooleanArray(sorted.size)
+    val kept = mutableListOf<DetectionBox>()
+    for (i in sorted.indices) {
+        if (suppressed[i]) continue
+        val best = sorted[i]
+        kept.add(best)
+        for (j in i + 1 until sorted.size) {
+            if (suppressed[j]) continue
+            val candidate = sorted[j]
+            if (
+                candidate.label == best.label &&
+                detectionIoU(best, candidate) >= iouThreshold
+            ) {
+                suppressed[j] = true
+            }
         }
     }
+    return kept
+}
+
+private fun applyTemporalDebounce(
+    boxes: List<DetectionBox>,
+    tracks: MutableList<TrackedDetection>,
+    cooldownMap: MutableMap<CooldownKey, Long>,
+    nowMs: Long,
+    iouThreshold: Float,
+    cooldownMs: Long,
+    staleTrackMs: Long
+): TemporalDebounceResult {
+    tracks.removeAll { nowMs - it.lastSeenMs > staleTrackMs }
+    cooldownMap.entries.removeAll {
+        nowMs - it.value > cooldownMs * COOLDOWN_CLEANUP_MULTIPLIER
+    }
+
+    val visible = mutableListOf<DetectionBox>()
+    val newlyRegistered = mutableListOf<DetectionBox>()
+
+    val sortedBoxes = boxes.sortedByDescending { it.confidence }
+    val maxGridIndex = COOLDOWN_SPATIAL_GRID_BINS.toInt() - 1
+    for (box in sortedBoxes) {
+        val bestMatch = tracks.indices
+            .asSequence()
+            .filter { tracks[it].label == box.label }
+            .map { index -> index to detectionIoU(tracks[index].box, box) }
+            .maxByOrNull { it.second }
+
+        if (bestMatch != null && bestMatch.second >= iouThreshold) {
+            val matchingIndex = bestMatch.first
+            tracks[matchingIndex] = tracks[matchingIndex].copy(
+                box = box,
+                lastSeenMs = nowMs
+            )
+            visible.add(box)
+            continue
+        }
+
+        tracks.add(
+            TrackedDetection(
+                label = box.label,
+                box = box,
+                lastSeenMs = nowMs
+            )
+        )
+        visible.add(box)
+
+        val cooldownKey = CooldownKey(
+            label = box.label,
+            cellX = (box.cx * COOLDOWN_SPATIAL_GRID_BINS)
+                .toInt()
+                .coerceIn(0, maxGridIndex),
+            cellY = (box.cy * COOLDOWN_SPATIAL_GRID_BINS)
+                .toInt()
+                .coerceIn(0, maxGridIndex)
+        )
+        val lastRegistered = cooldownMap[cooldownKey]
+        if (lastRegistered == null || nowMs - lastRegistered >= cooldownMs) {
+            cooldownMap[cooldownKey] = nowMs
+            newlyRegistered.add(box)
+        }
+    }
+
+    return TemporalDebounceResult(
+        visibleBoxes = visible,
+        newlyRegistered = newlyRegistered
+    )
+}
+
+private fun detectionIoU(a: DetectionBox, b: DetectionBox): Float {
+    val ax1 = a.cx - a.w / 2f
+    val ay1 = a.cy - a.h / 2f
+    val ax2 = a.cx + a.w / 2f
+    val ay2 = a.cy + a.h / 2f
+
+    val bx1 = b.cx - b.w / 2f
+    val by1 = b.cy - b.h / 2f
+    val bx2 = b.cx + b.w / 2f
+    val by2 = b.cy + b.h / 2f
+
+    val interW = (minOf(ax2, bx2) - maxOf(ax1, bx1)).coerceAtLeast(0f)
+    val interH = (minOf(ay2, by2) - maxOf(ay1, by1)).coerceAtLeast(0f)
+    val interArea = interW * interH
+    val areaA = (ax2 - ax1).coerceAtLeast(0f) * (ay2 - ay1).coerceAtLeast(0f)
+    val areaB = (bx2 - bx1).coerceAtLeast(0f) * (by2 - by1).coerceAtLeast(0f)
+    val unionArea = areaA + areaB - interArea
+    return if (unionArea <= 0f) 0f else interArea / unionArea
 }
 
 /**
