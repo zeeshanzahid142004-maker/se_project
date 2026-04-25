@@ -415,13 +415,9 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                                     detectionBoxes = emptyList()
                                                     detectedItems.clear()
                                                 } else {
-                                                    val hasChanges = detectedItems.size != results.size ||
-                                                        results.any { result ->
-                                                            detectedItems.none { existing ->
-                                                                existing.label == result.label &&
-                                                                    existing.count == result.count
-                                                            }
-                                                        }
+                                                    val previousByLabel = detectedItems.associate { it.label to it.count }
+                                                    val freshByLabel = results.associate { it.label to it.count }
+                                                    val hasChanges = previousByLabel != freshByLabel
                                                     detectionBoxes = boxes
                                                     detectedItems.clear()
                                                     detectedItems.addAll(results)
