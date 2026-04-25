@@ -613,21 +613,19 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                         val translateX = ((imageW * scaleFactor) - size.width) / 2f
                         val translateY = ((imageH * scaleFactor) - size.height) / 2f
 
-                        val modelInputSize = 640f
-
                         // Draw each detection with its own bracket sized to the bbox
                         detectionBoxes.forEach { box ->
                             // Convert normalized [0,1] detection to model-pixel coordinates.
-                            val modelLeft = ((box.cx - box.w / 2f).coerceIn(0f, 1f)) * modelInputSize
-                            val modelTop = ((box.cy - box.h / 2f).coerceIn(0f, 1f)) * modelInputSize
-                            val modelRight = ((box.cx + box.w / 2f).coerceIn(0f, 1f)) * modelInputSize
-                            val modelBottom = ((box.cy + box.h / 2f).coerceIn(0f, 1f)) * modelInputSize
+                            val modelLeft = ((box.cx - box.w / 2f).coerceIn(0f, 1f)) * MODEL_INPUT_SIZE
+                            val modelTop = ((box.cy - box.h / 2f).coerceIn(0f, 1f)) * MODEL_INPUT_SIZE
+                            val modelRight = ((box.cx + box.w / 2f).coerceIn(0f, 1f)) * MODEL_INPUT_SIZE
+                            val modelBottom = ((box.cy + box.h / 2f).coerceIn(0f, 1f)) * MODEL_INPUT_SIZE
 
                             // Map model-pixel coordinates to full image coordinates using crop offsets.
-                            val imageLeft = cropX + (modelLeft / modelInputSize) * cropW
-                            val imageTop = cropY + (modelTop / modelInputSize) * cropH
-                            val imageRight = cropX + (modelRight / modelInputSize) * cropW
-                            val imageBottom = cropY + (modelBottom / modelInputSize) * cropH
+                            val imageLeft = cropX + (modelLeft / MODEL_INPUT_SIZE) * cropW
+                            val imageTop = cropY + (modelTop / MODEL_INPUT_SIZE) * cropH
+                            val imageRight = cropX + (modelRight / MODEL_INPUT_SIZE) * cropW
+                            val imageBottom = cropY + (modelBottom / MODEL_INPUT_SIZE) * cropH
 
                             val leftUnmirrored = imageLeft * scaleFactor - translateX
                             val top = imageTop * scaleFactor - translateY
@@ -685,14 +683,12 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                             val textW = labelPaint.measureText(labelText)
                             val fm = labelPaint.fontMetrics
                             val minBaseline = overlayTop + labelTopPad - fm.ascent + labelPadY
-                            val rectTop = top
-                            val rectLeft = left
-                            val baselineY = (rectTop - labelOffPx).coerceAtLeast(minBaseline)
+                            val baselineY = (top - labelOffPx).coerceAtLeast(minBaseline)
 
                             val bgW = textW + labelPadX * 2f
                             val bgH = (fm.descent - fm.ascent) + labelPadY * 2f
                             val maxBgLeft = overlayRight - bgW
-                            val bgLeft = rectLeft.coerceIn(overlayLeft, maxBgLeft.coerceAtLeast(overlayLeft))
+                            val bgLeft = left.coerceIn(overlayLeft, maxBgLeft.coerceAtLeast(overlayLeft))
                             val bgTop = (baselineY + fm.ascent - labelPadY).coerceAtLeast(overlayTop)
 
                             drawRoundRect(
@@ -1056,6 +1052,7 @@ private data class CooldownKey(
     val cellY: Int
 )
 
+private const val MODEL_INPUT_SIZE = 640f
 private const val COOLDOWN_CLEANUP_MULTIPLIER = 2L
 private const val COOLDOWN_SPATIAL_GRID_BINS = 8f
 
