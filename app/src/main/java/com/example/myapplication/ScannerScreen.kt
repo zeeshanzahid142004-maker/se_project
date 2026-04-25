@@ -661,6 +661,22 @@ private fun ScannerContent(navController: NavController) {
                     .offset(y = 155.dp)
                     .fillMaxWidth(0.7f)
             )
+
+            if (!cameraReady || isLookingUp) {
+                val scanAreaBrush = scannerShimmerBrush()
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(260.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(scanAreaBrush)
+                        .border(
+                            1.dp,
+                            if (isLookingUp) tealS.copy(alpha = 0.45f) else borderS,
+                            RoundedCornerShape(10.dp)
+                        )
+                )
+            }
         }
 
         // ── Top bar ────────────────────────────────────────────────────────
@@ -884,21 +900,6 @@ private fun ScannerContent(navController: NavController) {
             }
         }
 
-        // ── Init loader — shown until camera is bound ──────────────────────
-        if (!cameraReady) {
-            FullScreenLoader(
-                title    = "Initializing Scanner",
-                subtitle = "Preparing camera…"
-            )
-        }
-
-        // ── Lookup loader — shown while querying Supabase ──────────────────
-        if (isLookingUp) {
-            FullScreenLoader(
-                title    = "Looking up box…",
-                subtitle = "Connecting to database"
-            )
-        }
     }
 }
 
@@ -916,4 +917,27 @@ private fun ScanInfoRow(label: String, value: String, highlight: Boolean = false
             fontSize = 12.sp,
             fontWeight = if (highlight) FontWeight.SemiBold else FontWeight.Normal)
     }
+}
+
+@Composable
+private fun scannerShimmerBrush(): Brush {
+    val transition = rememberInfiniteTransition(label = "scannerShimmer")
+    val x by transition.animateFloat(
+        initialValue = -500f,
+        targetValue = 900f,
+        animationSpec = infiniteRepeatable(
+            tween(1300, easing = LinearEasing),
+            RepeatMode.Restart
+        ),
+        label = "scannerShimmerX"
+    )
+    return Brush.linearGradient(
+        colors = listOf(
+            surfAltS.copy(alpha = 0.85f),
+            Color(0xFF2B374C).copy(alpha = 0.95f),
+            surfAltS.copy(alpha = 0.85f)
+        ),
+        start = Offset(x, 0f),
+        end = Offset(x + 360f, 220f)
+    )
 }

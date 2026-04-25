@@ -44,13 +44,11 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -307,6 +305,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     )
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF080C10))) {
+        val sideInsetDp = 4.dp
         val topInsetDp = 68.dp
         val bottomInsetDp = 120.dp
         val camColor = if (cameraReady) tealN else redN
@@ -377,9 +376,9 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                     val viewH = pv2?.height?.takeIf { it > 0 } ?: imgH
 
                                     val density = ctx.resources.displayMetrics.density
-                                    val hPadPx = 28f * density
-                                    val tPadPx = 120f * density
-                                    val bPadPx = 120f * density
+                                    val hPadPx = sideInsetDp.value * density
+                                    val tPadPx = topInsetDp.value * density
+                                    val bPadPx = bottomInsetDp.value * density
 
                                     val cropW = ((viewW - 2 * hPadPx) * (imgW.toFloat() / viewW))
                                         .toInt().coerceIn(1, imgW)
@@ -413,10 +412,17 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                                 .map { (label, dets) -> DetectedItem(label, dets.size) }
                                             Log.d(TAG, "Inference: ${boxes.size} detections — ${boxes.map { it.label }}")
                                             mainExecutor.execute {
-                                                if (isScanningRef.get()) {
+                                                if (!isScanningRef.get()) {
+                                                    detectionBoxes = emptyList()
+                                                    detectedItems.clear()
+                                                } else {
+                                                    val previousByLabel = detectedItems.associate { it.label to it.count }
+                                                    val freshByLabel = results.associate { it.label to it.count }
+                                                    val hasChanges = previousByLabel != freshByLabel
                                                     detectionBoxes = boxes
-                                                    val hadNew = mergeDetections(detectedItems, results)
-                                                    if (hadNew) {
+                                                    detectedItems.clear()
+                                                    detectedItems.addAll(results)
+                                                    if (hasChanges && results.isNotEmpty()) {
                                                         scanFlashActive = true
                                                     }
                                                 }
@@ -525,13 +531,9 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 modifier = Modifier
                     .fillMaxSize()
                     .scale(boxScale)
-                    .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
                     .drawBehind {
-                        // Explicitly clear previous overlay pixels before drawing this frame.
-                        drawRect(Color.Transparent, blendMode = BlendMode.Clear)
-
                         // Viewfinder bounds inside the UI (matching the vignette padding)
-                        val vfLeft   = 4.dp.toPx()
+                        val vfLeft   = sideInsetDp.toPx()
                         val vfTop    = topInsetDp.toPx()
                         val vfWidth  = size.width - vfLeft * 2
                         val vfHeight = size.height - vfTop - bottomInsetDp.toPx()
@@ -607,6 +609,13 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                 size = Size(bgW, bgH),
                                 cornerRadius = CornerRadius(labelCorner, labelCorner)
                             )
+                            drawRoundRect(
+                                color = col,
+                                topLeft = Offset(bgLeft, bgTop),
+                                size = Size(bgW, bgH),
+                                cornerRadius = CornerRadius(labelCorner, labelCorner),
+                                style = Stroke(width = sw.coerceAtLeast(1f))
+                            )
                             drawContext.canvas.nativeCanvas.drawText(
                                 labelText,
                                 bgLeft + labelPadX,
@@ -621,7 +630,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 4.dp, end = 4.dp, top = topInsetDp, bottom = bottomInsetDp)
+                .padding(start = sideInsetDp, end = sideInsetDp, top = topInsetDp, bottom = bottomInsetDp)
                 .drawBehind {
                     val bLen = 42.dp.toPx()
                     val sw = 2.6f
@@ -942,24 +951,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             )
         }
     }
-}
-
-/** Returns true if any new item was added or an existing item's count increased. */
-private fun mergeDetections(current: SnapshotStateList<DetectedItem>, fresh: List<DetectedItem>): Boolean {
-    var changed = false
-    fresh.forEach { newItem ->
-        val idx = current.indexOfFirst { it.label == newItem.label }
-        if (idx >= 0) {
-            if (newItem.count > current[idx].count) {
-                current[idx] = newItem
-                changed = true
-            }
-        } else {
-            current.add(newItem)
-            changed = true
-        }
-    }
-    return changed
 }
 
 /**
@@ -1283,4 +1274,3 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
         }
     }
 }
-

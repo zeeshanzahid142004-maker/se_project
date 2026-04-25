@@ -26,9 +26,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -90,16 +88,12 @@ fun QrDisplayScreen(
         }
     }
 
-    if (isLoading) {
-        QrDisplayShimmer()
-        return
-    }
-
     QrDisplayContent(
         navController = navController,
         boxName       = boxName,
         contents      = contents,
-        createdAt     = createdAt
+        createdAt     = createdAt,
+        isDataLoading = isLoading
     )
 }
 
@@ -231,7 +225,8 @@ private fun QrDisplayContent(
     navController: NavController,
     boxName: String,
     contents: List<DetectedItem>,
-    createdAt: Long
+    createdAt: Long,
+    isDataLoading: Boolean = false
 ) {
     val context = LocalContext.current
 
@@ -263,6 +258,7 @@ private fun QrDisplayContent(
         if (createdAt == 0L) "—"
         else SimpleDateFormat("yyyy-MM-dd  HH:mm", Locale.getDefault()).format(Date(createdAt))
     }
+    val isSectionLoading = isDataLoading || qrBitmap == null
 
     Box(
         modifier = Modifier
@@ -351,9 +347,9 @@ private fun QrDisplayContent(
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
-                        CircularProgressIndicator(
-                            color = tealQ, strokeWidth = 2.dp,
-                            modifier = Modifier.size(32.dp)
+                        ShimmerBox(
+                            modifier = Modifier.fillMaxSize(),
+                            cornerRadius = 12
                         )
                     }
                 }
@@ -379,7 +375,22 @@ private fun QrDisplayContent(
                         color = tealQ, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
                 Spacer(Modifier.height(14.dp))
-                if (contents.isEmpty()) {
+                if (isDataLoading) {
+                    repeat(4) { idx ->
+                        if (idx > 0) {
+                            HorizontalDivider(
+                                color = borderQ,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                        }
+                        ShimmerBox(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(20.dp),
+                            cornerRadius = 8
+                        )
+                    }
+                } else if (contents.isEmpty()) {
                     Text(
                         "No items recorded for this box.",
                         color = mutedQ, fontSize = 13.sp,
@@ -420,34 +431,43 @@ private fun QrDisplayContent(
             // ── Action buttons ─────────────────────────────────────────────
             Column(modifier = Modifier.fillMaxWidth().alpha(fadeIn),
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = {
-                        val bmp = qrBitmap ?: return@Button
-                        val cachePath = File(context.cacheDir, "shared_qr")
-                        cachePath.mkdirs()
-                        val file = File(cachePath, "qr_${boxName}.png")
-                        try {
-                            FileOutputStream(file).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                            val contentUri = FileProvider.getUriForFile(
-                                context, "${context.packageName}.fileprovider", file
-                            )
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "image/png"
-                                putExtra(Intent.EXTRA_STREAM, contentUri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share QR Code via"))
-                        } catch (_: Exception) {}
-                    },
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = redQ)
-                ) {
-                    Icon(Icons.Default.Share, null, tint = Color.White,
-                        modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Share / Print QR", color = Color.White,
-                        fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                if (isSectionLoading) {
+                    ShimmerBox(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        cornerRadius = 12
+                    )
+                } else {
+                    Button(
+                        onClick = {
+                            val bmp = qrBitmap ?: return@Button
+                            val cachePath = File(context.cacheDir, "shared_qr")
+                            cachePath.mkdirs()
+                            val file = File(cachePath, "qr_${boxName}.png")
+                            try {
+                                FileOutputStream(file).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                                val contentUri = FileProvider.getUriForFile(
+                                    context, "${context.packageName}.fileprovider", file
+                                )
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "image/png"
+                                    putExtra(Intent.EXTRA_STREAM, contentUri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Share QR Code via"))
+                            } catch (_: Exception) {}
+                        },
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = redQ)
+                    ) {
+                        Icon(Icons.Default.Share, null, tint = Color.White,
+                            modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Share / Print QR", color = Color.White,
+                            fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
                 OutlinedButton(
                     onClick = {
@@ -583,34 +603,6 @@ private fun ScanResultShimmer() {
             ShimmerBox(Modifier.fillMaxWidth().height(52.dp))
         }
 
-        // Centred spinner on top of shimmer
-        val inf = rememberInfiniteTransition(label = "srSpinner")
-        val angle by inf.animateFloat(
-            0f, 360f,
-            infiniteRepeatable(tween(900, easing = LinearEasing)),
-            label = "srAngle"
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .size(56.dp)
-                .drawBehind {
-                    val sweep = 260f
-                    val stroke = Stroke(
-                        width = 4.dp.toPx(),
-                        cap = StrokeCap.Round
-                    )
-                    drawArc(
-                        brush = Brush.sweepGradient(
-                            listOf(Color.Transparent, tealQ)
-                        ),
-                        startAngle = angle,
-                        sweepAngle = sweep,
-                        useCenter = false,
-                        style = stroke
-                    )
-                }
-        )
     }
 }
 
