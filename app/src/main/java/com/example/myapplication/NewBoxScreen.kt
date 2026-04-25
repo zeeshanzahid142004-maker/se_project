@@ -622,16 +622,20 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                             val imageRight = cropX + (cropRightNorm * cropW)
                             val imageBottom = cropY + (cropBottomNorm * cropH)
 
-                            var left = imageLeft * scaleFactor - translateX
+                            val leftUnmirrored = imageLeft * scaleFactor - translateX
                             val top = imageTop * scaleFactor - translateY
-                            var right = imageRight * scaleFactor - translateX
+                            val rightUnmirrored = imageRight * scaleFactor - translateX
                             val bottom = imageBottom * scaleFactor - translateY
 
-                            if (projection.mirrored) {
-                                val mirroredLeft = size.width - right
-                                val mirroredRight = size.width - left
-                                left = mirroredLeft
-                                right = mirroredRight
+                            val left = if (projection.mirrored) {
+                                size.width - rightUnmirrored
+                            } else {
+                                leftUnmirrored
+                            }
+                            val right = if (projection.mirrored) {
+                                size.width - leftUnmirrored
+                            } else {
+                                rightUnmirrored
                             }
 
                             val cx = (left + right) / 2f
@@ -1097,6 +1101,7 @@ private fun applyTemporalDebounce(
     val newlyRegistered = mutableListOf<DetectionBox>()
 
     val sortedBoxes = boxes.sortedByDescending { it.confidence }
+    val maxGridIndex = COOLDOWN_SPATIAL_GRID_BINS.toInt() - 1
     for (box in sortedBoxes) {
         val bestMatch = tracks.indices
             .asSequence()
@@ -1127,10 +1132,10 @@ private fun applyTemporalDebounce(
             label = box.label,
             cellX = (box.cx * COOLDOWN_SPATIAL_GRID_BINS)
                 .toInt()
-                .coerceIn(0, COOLDOWN_SPATIAL_GRID_BINS.toInt() - 1),
+                .coerceIn(0, maxGridIndex),
             cellY = (box.cy * COOLDOWN_SPATIAL_GRID_BINS)
                 .toInt()
-                .coerceIn(0, COOLDOWN_SPATIAL_GRID_BINS.toInt() - 1)
+                .coerceIn(0, maxGridIndex)
         )
         val lastRegistered = cooldownMap[cooldownKey]
         if (lastRegistered == null || nowMs - lastRegistered >= cooldownMs) {
