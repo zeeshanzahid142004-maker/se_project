@@ -1159,7 +1159,9 @@ private fun detectionIoU(a: DetectionBox, b: DetectionBox): Float {
     val interW = (minOf(ax2, bx2) - maxOf(ax1, bx1)).coerceAtLeast(0f)
     val interH = (minOf(ay2, by2) - maxOf(ay1, by1)).coerceAtLeast(0f)
     val interArea = interW * interH
-    val unionArea = a.w * a.h + b.w * b.h - interArea
+    val areaA = (ax2 - ax1).coerceAtLeast(0f) * (ay2 - ay1).coerceAtLeast(0f)
+    val areaB = (bx2 - bx1).coerceAtLeast(0f) * (by2 - by1).coerceAtLeast(0f)
+    val unionArea = areaA + areaB - interArea
     return if (unionArea <= 0f) 0f else interArea / unionArea
 }
 
