@@ -150,7 +150,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     var scanFlashActive by remember { mutableStateOf(false) }
     var frameProjection by remember { mutableStateOf<FrameProjection?>(null) }
     val temporalTracks = remember { mutableStateListOf<TrackedDetection>() }
-    val temporalCooldownMap = remember { mutableStateMapOf<String, Long>() }
+    val temporalCooldownMap = remember { mutableStateMapOf<CooldownKey, Long>() }
 
     val isScanningRef = remember { AtomicBoolean(true) }
     val hasNavigatedRef = remember { AtomicBoolean(false) }
@@ -1034,7 +1034,7 @@ private data class FrameProjection(
     val mirrored: Boolean
 )
 
-private data class TrackedDetection(
+private class TrackedDetection(
     val label: String,
     var box: DetectionBox,
     var lastSeenMs: Long
@@ -1045,6 +1045,12 @@ private data class TemporalDebounceResult(
     val newlyRegistered: List<DetectionBox>
 )
 
+private data class CooldownKey(
+    val label: String,
+    val cellX: Int,
+    val cellY: Int
+)
+
 private const val COOLDOWN_CLEANUP_MULTIPLIER = 2L
 private const val COOLDOWN_SPATIAL_GRID_BINS = 8f
 
@@ -1052,14 +1058,22 @@ private fun applySameLabelNms(
     boxes: List<DetectionBox>,
     iouThreshold: Float
 ): List<DetectionBox> {
-    val sorted = boxes.sortedByDescending { it.confidence }.toMutableList()
+    val sorted = boxes.sortedByDescending { it.confidence }
+    val suppressed = BooleanArray(sorted.size)
     val kept = mutableListOf<DetectionBox>()
-    while (sorted.isNotEmpty()) {
-        val best = sorted.removeAt(0)
+    for (i in sorted.indices) {
+        if (suppressed[i]) continue
+        val best = sorted[i]
         kept.add(best)
-        sorted.removeAll { candidate ->
-            candidate.label == best.label &&
+        for (j in i + 1 until sorted.size) {
+            if (suppressed[j]) continue
+            val candidate = sorted[j]
+            if (
+                candidate.label == best.label &&
                 detectionIoU(best, candidate) >= iouThreshold
+            ) {
+                suppressed[j] = true
+            }
         }
     }
     return kept
@@ -1068,7 +1082,7 @@ private fun applySameLabelNms(
 private fun applyTemporalDebounce(
     boxes: List<DetectionBox>,
     tracks: MutableList<TrackedDetection>,
-    cooldownMap: MutableMap<String, Long>,
+    cooldownMap: MutableMap<CooldownKey, Long>,
     nowMs: Long,
     iouThreshold: Float,
     cooldownMs: Long,
@@ -1104,9 +1118,11 @@ private fun applyTemporalDebounce(
         )
         visible.add(box)
 
-        val cooldownKey = "${box.label}:" +
-            "${(box.cx * COOLDOWN_SPATIAL_GRID_BINS).toInt()}:" +
-            "${(box.cy * COOLDOWN_SPATIAL_GRID_BINS).toInt()}"
+        val cooldownKey = CooldownKey(
+            label = box.label,
+            cellX = (box.cx * COOLDOWN_SPATIAL_GRID_BINS).toInt(),
+            cellY = (box.cy * COOLDOWN_SPATIAL_GRID_BINS).toInt()
+        )
         val lastRegistered = cooldownMap[cooldownKey]
         if (lastRegistered == null || nowMs - lastRegistered >= cooldownMs) {
             cooldownMap[cooldownKey] = nowMs
