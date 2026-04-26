@@ -181,6 +181,10 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         cameraReady = false
     }
 
+    /**
+     * Merges a detected item into the UI list.
+     * If a label already exists, increments its count; otherwise appends a new entry.
+     */
     fun addItemToList(item: DetectedItem) {
         val index = detectedItems.indexOfFirst { it.label == item.label }
         if (index >= 0) {
@@ -1158,6 +1162,10 @@ private fun applyTemporalDebounce(
     )
 }
 
+/**
+ * Registers [box] as newly detected for [key] only when the cooldown window has elapsed.
+ * This prevents duplicate rapid-fire registrations for the same spatial label bucket.
+ */
 private fun registerIfCooldownPassed(
     box: DetectionBox,
     key: CooldownKey,
