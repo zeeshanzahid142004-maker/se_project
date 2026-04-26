@@ -11,7 +11,6 @@ import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -43,11 +42,9 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
@@ -543,24 +540,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 }
         )
 
-        val flashAnim by rememberInfiniteTransition(label = "flash").animateFloat(
-            initialValue = 0.4f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(tween(450, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-            label = "flash"
-        )
-        // Flash color: neon green during scan success, red otherwise
-        val successColor = Color(0xFF00E676)
-        val boxColor by animateColorAsState(
-            targetValue = if (scanFlashActive) successColor else redN,
-            animationSpec = tween(durationMillis = 100),
-            label = "boxColor"
-        )
-        val boxStrokeWidth by animateFloatAsState(
-            targetValue = if (scanFlashActive) 5.5f else 2.4f,
-            animationSpec = tween(durationMillis = 100),
-            label = "boxStroke"
-        )
         // Phase 2: use Animatable-driven scale for the snap-in-pop animation
         val boxScale = boxScaleAnim.value
 
@@ -586,22 +565,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                     .fillMaxSize()
                     .scale(boxScale)
                     .drawBehind {
-                        // Viewfinder bounds inside the UI (matching the vignette padding)
-                        val overlayLeft = sideInsetDp.toPx()
-                        val overlayTop = topInsetDp.toPx()
-                        val overlayRight = size.width - sideInsetDp.toPx()
-                        val overlayBottom = size.height - bottomInsetDp.toPx()
-
-                        val minCLenPx = with(density) { 12.dp.toPx() }
-                        val labelOffPx = with(density) { 6.dp.toPx() }
-                        val labelTopPad = with(density) { 4.dp.toPx() }
-                        val labelPadX = with(density) { 6.dp.toPx() }
-                        val labelPadY = with(density) { 4.dp.toPx() }
-                        val labelCorner = with(density) { 4.dp.toPx() }
-
-                        val alpha = if (scanFlashActive) 1f else flashAnim
-                        val col   = boxColor.copy(alpha = alpha)
-                        val sw    = boxStrokeWidth
                         val projection = frameProjection
                         if (projection == null) return@drawBehind
 
@@ -618,99 +581,43 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                         val translateX = -(((imageW * scaleFactor) - size.width) / 2f)
                         val translateY = -(((imageH * scaleFactor) - size.height) / 2f)
 
-                        // Draw each detection with its own bracket sized to the bbox
                         detectionBoxes.forEach { box ->
-                            val modelLeft = ((box.cx - box.w / 2f).coerceIn(0f, 1f) * MODEL_INPUT_SIZE)
-                            val modelTop = ((box.cy - box.h / 2f).coerceIn(0f, 1f) * MODEL_INPUT_SIZE)
-                            val modelRight = ((box.cx + box.w / 2f).coerceIn(0f, 1f) * MODEL_INPUT_SIZE)
-                            val modelBottom = ((box.cy + box.h / 2f).coerceIn(0f, 1f) * MODEL_INPUT_SIZE)
+                            val detLeft = ((box.cx - box.w / 2f).coerceIn(0f, 1f) * MODEL_INPUT_SIZE)
+                            val detTop = ((box.cy - box.h / 2f).coerceIn(0f, 1f) * MODEL_INPUT_SIZE)
+                            val detRight = ((box.cx + box.w / 2f).coerceIn(0f, 1f) * MODEL_INPUT_SIZE)
+                            val detBottom = ((box.cy + box.h / 2f).coerceIn(0f, 1f) * MODEL_INPUT_SIZE)
 
-                            val imageLeft = (modelLeft * cropScaleX) + cropX
-                            val imageTop = (modelTop * cropScaleY) + cropY
-                            val imageRight = (modelRight * cropScaleX) + cropX
-                            val imageBottom = (modelBottom * cropScaleY) + cropY
+                            val imageLeft = detLeft * cropScaleX + cropX
+                            val imageTop = detTop * cropScaleY + cropY
+                            val imageRight = detRight * cropScaleX + cropX
+                            val imageBottom = detBottom * cropScaleY + cropY
 
-                            val leftUnmirrored = imageLeft * scaleFactor + translateX
-                            val top = imageTop * scaleFactor + translateY
-                            val rightUnmirrored = imageRight * scaleFactor + translateX
-                            val bottom = imageBottom * scaleFactor + translateY
+                            var screenLeft = imageLeft * scaleFactor + translateX
+                            var screenRight = imageRight * scaleFactor + translateX
+                            val screenTop = imageTop * scaleFactor + translateY
+                            val screenBottom = imageBottom * scaleFactor + translateY
 
-                            val left = if (projection.mirrored) {
-                                size.width - rightUnmirrored
-                            } else {
-                                leftUnmirrored
-                            }
-                            val right = if (projection.mirrored) {
-                                size.width - leftUnmirrored
-                            } else {
-                                rightUnmirrored
+                            if (projection.mirrored) {
+                                val mirroredLeft = size.width - screenRight
+                                val mirroredRight = size.width - screenLeft
+                                screenLeft = mirroredLeft
+                                screenRight = mirroredRight
                             }
 
-                            val cx = (left + right) / 2f
-                            val cy = (top + bottom) / 2f
-                            val bw = (right - left).coerceAtLeast(1f)
-                            val bh = (bottom - top).coerceAtLeast(1f)
-
-                            // Corner bracket length: 22 % of the shorter side, min 12 dp
-                            val cLen = (minOf(bw, bh) * 0.22f).coerceAtLeast(minCLenPx)
-
-                            // Glow pass on flash
-                            if (scanFlashActive) {
-                                val glowCol = boxColor.copy(alpha = 0.35f)
-                                val gsw     = sw * 3.8f
-                                drawLine(glowCol, Offset(left,          top + cLen),    Offset(left,         top),    gsw)
-                                drawLine(glowCol, Offset(left,          top),           Offset(left + cLen,  top),    gsw)
-                                drawLine(glowCol, Offset(right,         top + cLen),    Offset(right,        top),    gsw)
-                                drawLine(glowCol, Offset(right - cLen,  top),           Offset(right,        top),    gsw)
-                                drawLine(glowCol, Offset(left,          bottom - cLen), Offset(left,         bottom), gsw)
-                                drawLine(glowCol, Offset(left,          bottom),        Offset(left + cLen,  bottom), gsw)
-                                drawLine(glowCol, Offset(right,         bottom - cLen), Offset(right,        bottom), gsw)
-                                drawLine(glowCol, Offset(right - cLen,  bottom),        Offset(right,        bottom), gsw)
-                            }
-
-                            // Corner brackets
-                            drawLine(col, Offset(left,         top + cLen),    Offset(left,        top),    sw)
-                            drawLine(col, Offset(left,         top),           Offset(left + cLen, top),    sw)
-                            drawLine(col, Offset(right,        top + cLen),    Offset(right,       top),    sw)
-                            drawLine(col, Offset(right - cLen, top),           Offset(right,       top),    sw)
-                            drawLine(col, Offset(left,         bottom - cLen), Offset(left,        bottom), sw)
-                            drawLine(col, Offset(left,         bottom),        Offset(left + cLen, bottom), sw)
-                            drawLine(col, Offset(right,        bottom - cLen), Offset(right,       bottom), sw)
-                            drawLine(col, Offset(right - cLen, bottom),        Offset(right,       bottom), sw)
-
-                            // Centre dot
-                            drawCircle(boxColor, 3.dp.toPx(), Offset(cx, cy), alpha = alpha)
-
-                            // Label above top-left corner with dynamic background.
-                            val labelText = box.label.uppercase()
-                            val textW = labelPaint.measureText(labelText)
-                            val fm = labelPaint.fontMetrics
-                            val minBaseline = overlayTop + labelTopPad - fm.ascent + labelPadY
-                            val baselineY = (top - labelOffPx).coerceAtLeast(minBaseline)
-
-                            val bgW = textW + labelPadX * 2f
-                            val bgH = (fm.descent - fm.ascent) + labelPadY * 2f
-                            val maxBgLeft = overlayRight - bgW
-                            val bgLeft = left.coerceIn(overlayLeft, maxBgLeft.coerceAtLeast(overlayLeft))
-                            val bgTop = (baselineY + fm.ascent - labelPadY).coerceAtLeast(overlayTop)
-
-                            drawRoundRect(
-                                color = Color(0xCC000000),
-                                topLeft = Offset(bgLeft, bgTop),
-                                size = Size(bgW, bgH),
-                                cornerRadius = CornerRadius(labelCorner, labelCorner)
+                            drawRect(
+                                color = Color.Green,
+                                topLeft = Offset(screenLeft, screenTop),
+                                size = Size(
+                                    (screenRight - screenLeft).coerceAtLeast(1f),
+                                    (screenBottom - screenTop).coerceAtLeast(1f)
+                                ),
+                                style = Stroke(width = 3f)
                             )
-                            drawRoundRect(
-                                color = col,
-                                topLeft = Offset(bgLeft, bgTop),
-                                size = Size(bgW, bgH),
-                                cornerRadius = CornerRadius(labelCorner, labelCorner),
-                                style = Stroke(width = sw.coerceAtLeast(1f))
-                            )
+
                             drawContext.canvas.nativeCanvas.drawText(
-                                labelText,
-                                bgLeft + labelPadX,
-                                baselineY,
+                                box.label,
+                                screenLeft,
+                                screenTop - 8f,
                                 labelPaint
                             )
                         }
