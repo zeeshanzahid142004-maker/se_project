@@ -1096,6 +1096,13 @@ private fun applyTemporalDebounce(
 
     val visible = mutableListOf<DetectionBox>()
     val newlyRegistered = mutableListOf<DetectionBox>()
+    fun registerIfCooldownPassed(box: DetectionBox, key: CooldownKey) {
+        val lastRegistered = cooldownMap[key]
+        if (lastRegistered == null || nowMs - lastRegistered >= cooldownMs) {
+            cooldownMap[key] = nowMs
+            newlyRegistered.add(box)
+        }
+    }
 
     val sortedBoxes = boxes.sortedByDescending { it.confidence }
     val maxGridIndex = COOLDOWN_SPATIAL_GRID_BINS.toInt() - 1
@@ -1123,11 +1130,7 @@ private fun applyTemporalDebounce(
                 lastSeenMs = nowMs
             )
             visible.add(box)
-            val lastRegistered = cooldownMap[cooldownKey]
-            if (lastRegistered == null || nowMs - lastRegistered >= cooldownMs) {
-                cooldownMap[cooldownKey] = nowMs
-                newlyRegistered.add(box)
-            }
+            registerIfCooldownPassed(box, cooldownKey)
             continue
         }
 
@@ -1140,11 +1143,7 @@ private fun applyTemporalDebounce(
         )
         visible.add(box)
 
-        val lastRegistered = cooldownMap[cooldownKey]
-        if (lastRegistered == null || nowMs - lastRegistered >= cooldownMs) {
-            cooldownMap[cooldownKey] = nowMs
-            newlyRegistered.add(box)
-        }
+        registerIfCooldownPassed(box, cooldownKey)
     }
 
     return TemporalDebounceResult(
