@@ -74,6 +74,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val TAG = "NewBoxScreen"
+private const val MODEL_INPUT_SIZE = 640f
 
 /** Holds structured error information for the save-error dialog. */
 private data class SaveErrorInfo(
@@ -178,6 +179,16 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         imageAnalysisRef = null
         analysisExecutorRef = null
         cameraReady = false
+    }
+
+    fun addItemToList(item: DetectedItem) {
+        val index = detectedItems.indexOfFirst { it.label == item.label }
+        if (index >= 0) {
+            val existing = detectedItems[index]
+            detectedItems[index] = existing.copy(count = existing.count + item.count)
+        } else {
+            detectedItems.add(item)
+        }
     }
 
     fun launchSave(boxName: String, itemsSnapshot: List<DetectedItem>) {
@@ -426,7 +437,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                             mainExecutor.execute {
                                                 if (!isScanningRef.get()) {
                                                     detectionBoxes = emptyList()
-                                                    detectedItems.clear()
                                                     temporalTracks.clear()
                                                     temporalCooldownMap.clear()
                                                     frameProjection = null
@@ -461,15 +471,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                                             .groupingBy { it.label }
                                                             .eachCount()
                                                         increments.forEach { (label, increment) ->
-                                                            val index = detectedItems.indexOfFirst { it.label == label }
-                                                            if (index >= 0) {
-                                                                val existing = detectedItems[index]
-                                                                detectedItems[index] = existing.copy(
-                                                                    count = existing.count + increment
-                                                                )
-                                                            } else {
-                                                                detectedItems.add(DetectedItem(label, increment))
-                                                            }
+                                                            addItemToList(DetectedItem(label, increment))
                                                         }
                                                         scanFlashActive = true
                                                     }
@@ -606,26 +608,28 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                         val cropW = projection.cropWidth.toFloat()
                         val cropH = projection.cropHeight.toFloat()
 
+                        val cropScaleX = cropW / MODEL_INPUT_SIZE
+                        val cropScaleY = cropH / MODEL_INPUT_SIZE
                         val scaleFactor = maxOf(size.width / imageW, size.height / imageH)
-                        val translateX = ((imageW * scaleFactor) - size.width) / 2f
-                        val translateY = ((imageH * scaleFactor) - size.height) / 2f
+                        val translateX = -(((imageW * scaleFactor) - size.width) / 2f)
+                        val translateY = -(((imageH * scaleFactor) - size.height) / 2f)
 
                         // Draw each detection with its own bracket sized to the bbox
                         detectionBoxes.forEach { box ->
-                            val cropLeftNorm = (box.cx - box.w / 2f).coerceIn(0f, 1f)
-                            val cropTopNorm = (box.cy - box.h / 2f).coerceIn(0f, 1f)
-                            val cropRightNorm = (box.cx + box.w / 2f).coerceIn(0f, 1f)
-                            val cropBottomNorm = (box.cy + box.h / 2f).coerceIn(0f, 1f)
+                            val modelLeft = ((box.cx - box.w / 2f).coerceIn(0f, 1f) * MODEL_INPUT_SIZE)
+                            val modelTop = ((box.cy - box.h / 2f).coerceIn(0f, 1f) * MODEL_INPUT_SIZE)
+                            val modelRight = ((box.cx + box.w / 2f).coerceIn(0f, 1f) * MODEL_INPUT_SIZE)
+                            val modelBottom = ((box.cy + box.h / 2f).coerceIn(0f, 1f) * MODEL_INPUT_SIZE)
 
-                            val imageLeft = cropX + (cropLeftNorm * cropW)
-                            val imageTop = cropY + (cropTopNorm * cropH)
-                            val imageRight = cropX + (cropRightNorm * cropW)
-                            val imageBottom = cropY + (cropBottomNorm * cropH)
+                            val imageLeft = (modelLeft * cropScaleX) + cropX
+                            val imageTop = (modelTop * cropScaleY) + cropY
+                            val imageRight = (modelRight * cropScaleX) + cropX
+                            val imageBottom = (modelBottom * cropScaleY) + cropY
 
-                            val leftUnmirrored = imageLeft * scaleFactor - translateX
-                            val top = imageTop * scaleFactor - translateY
-                            val rightUnmirrored = imageRight * scaleFactor - translateX
-                            val bottom = imageBottom * scaleFactor - translateY
+                            val leftUnmirrored = imageLeft * scaleFactor + translateX
+                            val top = imageTop * scaleFactor + translateY
+                            val rightUnmirrored = imageRight * scaleFactor + translateX
+                            val bottom = imageBottom * scaleFactor + translateY
 
                             val left = if (projection.mirrored) {
                                 size.width - rightUnmirrored
@@ -1018,13 +1022,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             )
         }
 
-        // ── Full-screen loader while saving to database ────────────────────
-        if (isSaving) {
-            FullScreenLoader(
-                title    = "Creating box…",
-                subtitle = "Saving to database"
-            )
-        }
     }
 }
 
@@ -1103,6 +1100,16 @@ private fun applyTemporalDebounce(
     val sortedBoxes = boxes.sortedByDescending { it.confidence }
     val maxGridIndex = COOLDOWN_SPATIAL_GRID_BINS.toInt() - 1
     for (box in sortedBoxes) {
+        val cooldownKey = CooldownKey(
+            label = box.label,
+            cellX = (box.cx * COOLDOWN_SPATIAL_GRID_BINS)
+                .toInt()
+                .coerceIn(0, maxGridIndex),
+            cellY = (box.cy * COOLDOWN_SPATIAL_GRID_BINS)
+                .toInt()
+                .coerceIn(0, maxGridIndex)
+        )
+
         val bestMatch = tracks.indices
             .asSequence()
             .filter { tracks[it].label == box.label }
@@ -1116,6 +1123,11 @@ private fun applyTemporalDebounce(
                 lastSeenMs = nowMs
             )
             visible.add(box)
+            val lastRegistered = cooldownMap[cooldownKey]
+            if (lastRegistered == null || nowMs - lastRegistered >= cooldownMs) {
+                cooldownMap[cooldownKey] = nowMs
+                newlyRegistered.add(box)
+            }
             continue
         }
 
@@ -1128,15 +1140,6 @@ private fun applyTemporalDebounce(
         )
         visible.add(box)
 
-        val cooldownKey = CooldownKey(
-            label = box.label,
-            cellX = (box.cx * COOLDOWN_SPATIAL_GRID_BINS)
-                .toInt()
-                .coerceIn(0, maxGridIndex),
-            cellY = (box.cy * COOLDOWN_SPATIAL_GRID_BINS)
-                .toInt()
-                .coerceIn(0, maxGridIndex)
-        )
         val lastRegistered = cooldownMap[cooldownKey]
         if (lastRegistered == null || nowMs - lastRegistered >= cooldownMs) {
             cooldownMap[cooldownKey] = nowMs
