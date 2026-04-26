@@ -1096,13 +1096,6 @@ private fun applyTemporalDebounce(
 
     val visible = mutableListOf<DetectionBox>()
     val newlyRegistered = mutableListOf<DetectionBox>()
-    fun registerIfCooldownPassed(box: DetectionBox, key: CooldownKey) {
-        val lastRegistered = cooldownMap[key]
-        if (lastRegistered == null || nowMs - lastRegistered >= cooldownMs) {
-            cooldownMap[key] = nowMs
-            newlyRegistered.add(box)
-        }
-    }
 
     val sortedBoxes = boxes.sortedByDescending { it.confidence }
     val maxGridIndex = COOLDOWN_SPATIAL_GRID_BINS.toInt() - 1
@@ -1130,7 +1123,14 @@ private fun applyTemporalDebounce(
                 lastSeenMs = nowMs
             )
             visible.add(box)
-            registerIfCooldownPassed(box, cooldownKey)
+            registerIfCooldownPassed(
+                box = box,
+                key = cooldownKey,
+                cooldownMap = cooldownMap,
+                nowMs = nowMs,
+                cooldownMs = cooldownMs,
+                newlyRegistered = newlyRegistered
+            )
             continue
         }
 
@@ -1142,14 +1142,35 @@ private fun applyTemporalDebounce(
             )
         )
         visible.add(box)
-
-        registerIfCooldownPassed(box, cooldownKey)
+        registerIfCooldownPassed(
+            box = box,
+            key = cooldownKey,
+            cooldownMap = cooldownMap,
+            nowMs = nowMs,
+            cooldownMs = cooldownMs,
+            newlyRegistered = newlyRegistered
+        )
     }
 
     return TemporalDebounceResult(
         visibleBoxes = visible,
         newlyRegistered = newlyRegistered
     )
+}
+
+private fun registerIfCooldownPassed(
+    box: DetectionBox,
+    key: CooldownKey,
+    cooldownMap: MutableMap<CooldownKey, Long>,
+    nowMs: Long,
+    cooldownMs: Long,
+    newlyRegistered: MutableList<DetectionBox>
+) {
+    val lastRegistered = cooldownMap[key]
+    if (lastRegistered == null || nowMs - lastRegistered >= cooldownMs) {
+        cooldownMap[key] = nowMs
+        newlyRegistered.add(box)
+    }
 }
 
 private fun detectionIoU(a: DetectionBox, b: DetectionBox): Float {
