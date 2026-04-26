@@ -72,6 +72,7 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "NewBoxScreen"
 private const val MODEL_INPUT_SIZE = 640f
+private val detectionBoxColor = Color.Green
 
 /** Holds structured error information for the save-error dialog. */
 private data class SaveErrorInfo(
@@ -580,6 +581,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                         val scaleFactor = maxOf(size.width / imageW, size.height / imageH)
                         val translateX = -(((imageW * scaleFactor) - size.width) / 2f)
                         val translateY = -(((imageH * scaleFactor) - size.height) / 2f)
+                        val labelOffsetPx = with(density) { 8.dp.toPx() }
 
                         detectionBoxes.forEach { box ->
                             val detLeft = ((box.cx - box.w / 2f).coerceIn(0f, 1f) * MODEL_INPUT_SIZE)
@@ -592,20 +594,24 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                             val imageRight = detRight * cropScaleX + cropX
                             val imageBottom = detBottom * cropScaleY + cropY
 
-                            var screenLeft = imageLeft * scaleFactor + translateX
-                            var screenRight = imageRight * scaleFactor + translateX
+                            val screenLeftUnmirrored = imageLeft * scaleFactor + translateX
+                            val screenRightUnmirrored = imageRight * scaleFactor + translateX
                             val screenTop = imageTop * scaleFactor + translateY
                             val screenBottom = imageBottom * scaleFactor + translateY
 
-                            if (projection.mirrored) {
-                                val mirroredLeft = size.width - screenRight
-                                val mirroredRight = size.width - screenLeft
-                                screenLeft = mirroredLeft
-                                screenRight = mirroredRight
+                            val screenLeft = if (projection.mirrored) {
+                                size.width - screenRightUnmirrored
+                            } else {
+                                screenLeftUnmirrored
+                            }
+                            val screenRight = if (projection.mirrored) {
+                                size.width - screenLeftUnmirrored
+                            } else {
+                                screenRightUnmirrored
                             }
 
                             drawRect(
-                                color = Color.Green,
+                                color = detectionBoxColor,
                                 topLeft = Offset(screenLeft, screenTop),
                                 size = Size(
                                     (screenRight - screenLeft).coerceAtLeast(1f),
@@ -614,10 +620,29 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                 style = Stroke(width = 3f)
                             )
 
+                            val labelText = box.label.uppercase()
+                            val textWidth = labelPaint.measureText(labelText)
+                            val fm = labelPaint.fontMetrics
+                            val labelTopPadPx = with(density) { 2.dp.toPx() }
+                            val minLabelBaseline = (-fm.ascent) + labelTopPadPx
+                            val maxLabelBaseline = size.height - fm.descent
+                            val labelX = screenLeft.coerceIn(
+                                0f,
+                                (size.width - textWidth).coerceAtLeast(0f)
+                            )
+                            val aboveBaseline = screenTop - labelOffsetPx
+                            val belowBaseline = screenBottom + labelOffsetPx - fm.ascent
+                            val labelBaseline = if (aboveBaseline >= minLabelBaseline) {
+                                aboveBaseline
+                            } else {
+                                belowBaseline
+                            }
+                            val labelY = labelBaseline.coerceIn(minLabelBaseline, maxLabelBaseline)
+
                             drawContext.canvas.nativeCanvas.drawText(
-                                box.label,
-                                screenLeft,
-                                screenTop - 8f,
+                                labelText,
+                                labelX,
+                                labelY,
                                 labelPaint
                             )
                         }
