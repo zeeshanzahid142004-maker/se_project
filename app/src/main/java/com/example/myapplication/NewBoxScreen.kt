@@ -437,7 +437,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                                             mainExecutor.execute {
                                                 if (!isScanningRef.get()) {
                                                     detectionBoxes = emptyList()
-                                                    detectedItems.clear()
                                                     temporalTracks.clear()
                                                     temporalCooldownMap.clear()
                                                     frameProjection = null
