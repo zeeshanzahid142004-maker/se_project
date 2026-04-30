@@ -615,17 +615,16 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
 
                         // Draw each detection with its own bracket sized to the bbox
                         detectionBoxes.forEach { box ->
-                            // Convert normalized [0,1] detection to model-pixel coordinates.
-                            val modelLeft = ((box.cx - box.w / 2f).coerceIn(0f, 1f)) * MODEL_INPUT_SIZE
-                            val modelTop = ((box.cy - box.h / 2f).coerceIn(0f, 1f)) * MODEL_INPUT_SIZE
-                            val modelRight = ((box.cx + box.w / 2f).coerceIn(0f, 1f)) * MODEL_INPUT_SIZE
-                            val modelBottom = ((box.cy + box.h / 2f).coerceIn(0f, 1f)) * MODEL_INPUT_SIZE
+                            // Map normalized [0,1] detection to full image coordinates using crop offsets.
+                            val cropLeftNorm = (box.cx - box.w / 2f).coerceIn(0f, 1f)
+                            val cropTopNorm = (box.cy - box.h / 2f).coerceIn(0f, 1f)
+                            val cropRightNorm = (box.cx + box.w / 2f).coerceIn(0f, 1f)
+                            val cropBottomNorm = (box.cy + box.h / 2f).coerceIn(0f, 1f)
 
-                            // Map model-pixel coordinates to full image coordinates using crop offsets.
-                            val imageLeft = cropX + (modelLeft / MODEL_INPUT_SIZE) * cropW
-                            val imageTop = cropY + (modelTop / MODEL_INPUT_SIZE) * cropH
-                            val imageRight = cropX + (modelRight / MODEL_INPUT_SIZE) * cropW
-                            val imageBottom = cropY + (modelBottom / MODEL_INPUT_SIZE) * cropH
+                            val imageLeft = cropX + (cropLeftNorm * cropW)
+                            val imageTop = cropY + (cropTopNorm * cropH)
+                            val imageRight = cropX + (cropRightNorm * cropW)
+                            val imageBottom = cropY + (cropBottomNorm * cropH)
 
                             val leftUnmirrored = imageLeft * scaleFactor - translateX
                             val top = imageTop * scaleFactor - translateY
@@ -1052,7 +1051,6 @@ private data class CooldownKey(
     val cellY: Int
 )
 
-private const val MODEL_INPUT_SIZE = 640f
 private const val COOLDOWN_CLEANUP_MULTIPLIER = 2L
 private const val COOLDOWN_SPATIAL_GRID_BINS = 8f
 
