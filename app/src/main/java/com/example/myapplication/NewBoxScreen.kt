@@ -66,7 +66,6 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -136,7 +135,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     val supabaseRepo   = remember { com.example.myapplication.data.SupabaseRepository() }
 
     val detectedItems = remember { mutableStateListOf<DetectedItem>() }
-    // Live bounding boxes from the most recent YOLO inference frame
     var detectionBoxes by remember { mutableStateOf<List<DetectionBox>>(emptyList()) }
     var showReviewSheet by remember { mutableStateOf(false) }
     var showComplaintSheet by remember { mutableStateOf(false) }
@@ -145,7 +143,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     var cameraReady by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
     var useFrontCamera by remember { mutableStateOf(false) }
-    // Triggers the flash/haptic/audio feedback on successful scan
     var scanFlashActive by remember { mutableStateOf(false) }
     var frameProjection by remember { mutableStateOf<FrameProjection?>(null) }
     val temporalTracks = remember { mutableStateListOf<TrackedDetection>() }
@@ -154,7 +151,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     val isScanningRef = remember { AtomicBoolean(true) }
     val hasNavigatedRef = remember { AtomicBoolean(false) }
 
-    // Reset camera state when flipping
     LaunchedEffect(useFrontCamera) {
         isScanningRef.set(true)
         cameraReady = false
@@ -162,22 +158,9 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
 
     var detector by remember { mutableStateOf<YoloDetector?>(null) }
 
-    var cameraProviderRef by remember { mutableStateOf<ProcessCameraProvider?>(null) }
-    var imageAnalysisRef by remember { mutableStateOf<ImageAnalysis?>(null) }
-    var analysisExecutorRef by remember { mutableStateOf<ExecutorService?>(null) }
 
-    var lastInferenceMs by remember { mutableStateOf(0L) }
-    val previewViewRef = remember { mutableStateOf<PreviewView?>(null) }
 
-    fun stopScanningNow() {
-        isScanningRef.set(false)
-        try { imageAnalysisRef?.clearAnalyzer() } catch (_: Exception) {}
-        try { cameraProviderRef?.unbindAll() } catch (_: Exception) {}
-        try { analysisExecutorRef?.shutdownNow() } catch (_: Exception) {}
-        imageAnalysisRef = null
-        analysisExecutorRef = null
-        cameraReady = false
-    }
+
 
     /**
      * Merges a detected item into the UI list.
@@ -193,28 +176,41 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         }
     }
 
+    // ── Save: write local DB first (instant) → navigate immediately →
+    //         sync Supabase in background so camera closes without delay ──────
     fun launchSave(boxName: String, itemsSnapshot: List<DetectedItem>) {
         scope.launch(Dispatchers.IO) {
             try {
-                // 1. Write to Supabase first — throws on network/server error
-                supabaseRepo.saveBoxWithItems(boxName, itemsSnapshot)
-
-                // 2. Only persist locally after Supabase succeeds
+                // Step 1: local Room write — completes in microseconds
                 val boxId = repository.createBox(boxName)
                 repository.saveItems(boxId, itemsSnapshot)
 
+                // Step 2: navigate immediately with the real boxId — no more waiting
                 withContext(Dispatchers.Main) {
-                    navController.navigate("qr_display_screen/$boxId")
+                    navController.navigate("qr_display_screen/$boxId") {
+                        popUpTo("new_box_screen") { inclusive = true }
+                    }
                 }
+
+                // Step 3: Supabase sync happens in background after user is on QR screen
+                try {
+                    supabaseRepo.saveBoxWithItems(boxName, itemsSnapshot)
+                } catch (e: Exception) {
+                    // Background sync failure — logged but non-blocking.
+                    // User already has their QR code from local DB.
+                    Log.e(TAG, "Supabase background sync failed: ${e.message}", e)
+                }
+
             } catch (e: Exception) {
-                Log.e(TAG, "Supabase save failed: ${e.message}", e)
+                // Local DB write failed — this is the only hard-error case
+                Log.e(TAG, "Local DB save failed: ${e.message}", e)
                 val errorCode = classifyError(e)
                 withContext(Dispatchers.Main) {
                     hasNavigatedRef.set(false)
                     isSaving = false
                     retryAction = { isSaving = true; launchSave(boxName, itemsSnapshot) }
                     saveError = SaveErrorInfo(
-                        userMessage = "We couldn't reach the server. Please check your connection and try again.",
+                        userMessage = "Could not save the box locally. Please try again.",
                         technicalDetails = e.message ?: "Unknown error",
                         errorCode = errorCode
                     )
@@ -236,14 +232,11 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         detector = d
     }
 
-    // Phase 2: Animatable for snap-in-then-pop bounding box scale
     val boxScaleAnim = remember { Animatable(1.0f) }
 
-    // Sensory feedback: snap animation + double-pulse haptic + audio when a new item is detected
     LaunchedEffect(scanFlashActive) {
         if (!scanFlashActive) return@LaunchedEffect
 
-        // Double-pulse haptic via vibrator for a stronger physical feel
         val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             vibrator.vibrate(
@@ -258,7 +251,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             vibrator.vibrate(longArrayOf(0, 90, 60, 130), -1)
         }
 
-        // Audio — play the scan chime
         try {
             MediaPlayer.create(context, R.raw.crumble)?.apply {
                 setOnCompletionListener { release() }
@@ -268,7 +260,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             Log.w(TAG, "Audio feedback failed: ${e.message}")
         }
 
-        // Snap inward (scale down) then pop outward with bounce, then settle
         boxScaleAnim.snapTo(1.0f)
         boxScaleAnim.animateTo(0.86f, animationSpec = tween(70, easing = FastOutSlowInEasing))
         boxScaleAnim.animateTo(
@@ -280,13 +271,12 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         )
         boxScaleAnim.animateTo(1.0f, animationSpec = tween(180))
 
-        // Reset flash flag after full animation completes
         scanFlashActive = false
     }
 
     DisposableEffect(Unit) {
         onDispose {
-            stopScanningNow()
+
             try { detector?.close() } catch (_: Exception) {}
         }
     }
@@ -312,215 +302,50 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     )
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF080C10))) {
-        val sideInsetDp = 4.dp
-        val topInsetDp = 68.dp
+        val sideInsetDp   = 4.dp
+        val topInsetDp    = 68.dp
         val bottomInsetDp = 120.dp
         val camColor = if (cameraReady) tealN else redN
 
-        key(useFrontCamera) {
-        AndroidView(
-            factory = { ctx ->
-                Log.d(TAG, "AndroidView: creating PreviewView")
-                val pv = PreviewView(ctx).apply {
-                    scaleType = PreviewView.ScaleType.FILL_CENTER
-                }
-                previewViewRef.value = pv
+        // ── Inside NewBoxContent — replace the two old blocks with these 5 lines ──────
 
-                val mainExecutor = ContextCompat.getMainExecutor(ctx)
-                val analysisExecutor = Executors.newSingleThreadExecutor()
-                analysisExecutorRef = analysisExecutor
-                val future = ProcessCameraProvider.getInstance(ctx)
+        Box(modifier = Modifier.fillMaxSize().background(Color(0xFF080C10))) {
 
-                future.addListener({
-                    try {
-                        val provider = future.get()
-                        cameraProviderRef = provider
-                        Log.d(TAG, "CameraProvider: obtained")
+            CameraPreview(
+                useFrontCamera    = useFrontCamera,
+                detector          = detector,
+                isScanningRef     = isScanningRef,
+                sideInsetDp       = sideInsetDp,
+                topInsetDp        = topInsetDp,
+                bottomInsetDp     = bottomInsetDp,
+                onCameraReady     = { cameraReady = it },
+                onFrameProjection = { frameProjection = it },
+                onBoxesDetected   = { detectionBoxes = it },
+                onNewItems        = { newly ->
+                    newly.groupingBy { it.label }.eachCount()
+                        .forEach { (label, n) -> addItemToList(DetectedItem(label, n)) }
+                    scanFlashActive = true
+                },
+                modifier = Modifier.fillMaxSize()
+            )
 
-                        val preview = Preview.Builder().build().also {
-                            it.setSurfaceProvider(pv.surfaceProvider)
-                        }
+            BoxOverlay(
+                boxes            = detectionBoxes,
+                frameProjection  = frameProjection,
+                scaleValue       = boxScaleAnim.value,
+                modifier         = Modifier.fillMaxSize()
+            )
 
-                        val analysis = ImageAnalysis.Builder()
-                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                            .build()
-                            .also { ia ->
-                                imageAnalysisRef = ia
-                                ia.setAnalyzer(analysisExecutor) { imageProxy ->
-                                    if (!isScanningRef.get()) {
-                                        imageProxy.close()
-                                        return@setAnalyzer
-                                    }
+            // ... rest of your UI (vignette, scan line, buttons, sheets) unchanged
+        }
 
-                                    val now = System.currentTimeMillis()
-                                    if (now - lastInferenceMs < 800L) {
-                                        imageProxy.close()
-                                        return@setAnalyzer
-                                    }
-                                    lastInferenceMs = now
-
-                                    val mediaImage = imageProxy.image
-                                    if (mediaImage == null) {
-                                        Log.w(TAG, "Analyzer: mediaImage is null")
-                                        imageProxy.close()
-                                        return@setAnalyzer
-                                    }
-
-                                    val currentDetector = detector
-                                    if (currentDetector == null) {
-                                        Log.w(TAG, "Analyzer: detector is null, skipping inference")
-                                        imageProxy.close()
-                                        return@setAnalyzer
-                                    }
-
-                                    val rotation = imageProxy.imageInfo.rotationDegrees
-                                    val isRotated = rotation == 90 || rotation == 270
-                                    val imgW = if (isRotated) mediaImage.height else mediaImage.width
-                                    val imgH = if (isRotated) mediaImage.width else mediaImage.height
-
-                                    val pv2 = previewViewRef.value
-                                    val viewW = pv2?.width?.takeIf { it > 0 } ?: imgW
-                                    val viewH = pv2?.height?.takeIf { it > 0 } ?: imgH
-
-                                    val density = ctx.resources.displayMetrics.density
-                                    val hPadPx = sideInsetDp.value * density
-                                    val tPadPx = topInsetDp.value * density
-                                    val bPadPx = bottomInsetDp.value * density
-
-                                    val previewScale = maxOf(
-                                        viewW.toFloat() / imgW.toFloat(),
-                                        viewH.toFloat() / imgH.toFloat()
-                                    )
-                                    val scaledImageW = imgW * previewScale
-                                    val scaledImageH = imgH * previewScale
-                                    val previewTranslateX = ((scaledImageW - viewW) / 2f).coerceAtLeast(0f)
-                                    val previewTranslateY = ((scaledImageH - viewH) / 2f).coerceAtLeast(0f)
-
-                                    val vfLeftView = hPadPx
-                                    val vfTopView = tPadPx
-                                    val vfRightView = (viewW - hPadPx).coerceAtLeast(vfLeftView + 1f)
-                                    val vfBottomView = (viewH - bPadPx).coerceAtLeast(vfTopView + 1f)
-
-                                    val cropLeft = ((vfLeftView + previewTranslateX) / previewScale)
-                                        .toInt().coerceIn(0, imgW - 1)
-                                    val cropTop = ((vfTopView + previewTranslateY) / previewScale)
-                                        .toInt().coerceIn(0, imgH - 1)
-                                    val cropRight = ((vfRightView + previewTranslateX) / previewScale)
-                                        .toInt().coerceIn(cropLeft + 1, imgW)
-                                    val cropBottom = ((vfBottomView + previewTranslateY) / previewScale)
-                                        .toInt().coerceIn(cropTop + 1, imgH)
-
-                                    val cropX = cropLeft
-                                    val cropY = cropTop
-                                    val cropW = (cropRight - cropLeft).coerceAtLeast(1)
-                                    val cropH = (cropBottom - cropTop).coerceAtLeast(1)
-
-                                    Log.d(TAG, "Crop: imgW=$imgW imgH=$imgH cropX=$cropX cropY=$cropY cropW=$cropW cropH=$cropH")
-
-                                    try {
-                                        val full = imageProxy.toBitmap()
-                                        val matrix = android.graphics.Matrix().apply {
-                                            postRotate(rotation.toFloat())
-                                        }
-                                        val rotated = android.graphics.Bitmap.createBitmap(
-                                            full, 0, 0, full.width, full.height, matrix, true
-                                        )
-                                        val safeCropW = cropW.coerceAtMost(rotated.width - cropX).coerceAtLeast(1)
-                                        val safeCropH = cropH.coerceAtMost(rotated.height - cropY).coerceAtLeast(1)
-                                        val cropped = android.graphics.Bitmap.createBitmap(
-                                            rotated, cropX, cropY, safeCropW, safeCropH
-                                        )
-
-                                        Log.d(TAG, "Bitmap ready: ${cropped.width}x${cropped.height}, running inference")
-
-                                        try {
-                                            val boxes = currentDetector.detectBoxes(cropped)
-                                            Log.d(TAG, "Inference: ${boxes.size} detections — ${boxes.map { it.label }}")
-                                            mainExecutor.execute {
-                                                if (!isScanningRef.get()) {
-                                                    detectionBoxes = emptyList()
-                                                    temporalTracks.clear()
-                                                    temporalCooldownMap.clear()
-                                                    frameProjection = null
-                                                } else {
-                                                    val spatialFiltered = applySameLabelNms(
-                                                        boxes = boxes,
-                                                        iouThreshold = 0.50f
-                                                    )
-                                                    val temporalResult = applyTemporalDebounce(
-                                                        boxes = spatialFiltered,
-                                                        tracks = temporalTracks,
-                                                        cooldownMap = temporalCooldownMap,
-                                                        nowMs = System.currentTimeMillis(),
-                                                        iouThreshold = 0.50f,
-                                                        cooldownMs = 1200L,
-                                                        staleTrackMs = 2000L
-                                                    )
-
-                                                    detectionBoxes = temporalResult.visibleBoxes
-                                                    frameProjection = FrameProjection(
-                                                        imageWidth = imgW,
-                                                        imageHeight = imgH,
-                                                        cropX = cropX,
-                                                        cropY = cropY,
-                                                        cropWidth = safeCropW,
-                                                        cropHeight = safeCropH,
-                                                        mirrored = useFrontCamera
-                                                    )
-
-                                                    if (temporalResult.newlyRegistered.isNotEmpty()) {
-                                                        val increments = temporalResult.newlyRegistered
-                                                            .groupingBy { it.label }
-                                                            .eachCount()
-                                                        increments.forEach { (label, increment) ->
-                                                            addItemToList(DetectedItem(label, increment))
-                                                        }
-                                                        scanFlashActive = true
-                                                    }
-                                                }
-                                            }
-                                        } catch (e: Exception) {
-                                            Log.e(TAG, "Inference failed: ${e.message}", e)
-                                        } finally {
-                                            cropped.recycle()
-                                            rotated.recycle()
-                                            full.recycle()
-                                        }
-                                    } catch (e: Exception) {
-                                        Log.e(TAG, "Bitmap crop failed: ${e.message}", e)
-                                    } finally {
-                                        imageProxy.close()
-                                    }
-                                }
-                            }
-
-                        provider.unbindAll()
-                        provider.bindToLifecycle(
-                            lifecycleOwner,
-                            if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA,
-                            preview,
-                            analysis
-                        )
-                        Log.d(TAG, "Camera bound to lifecycle OK")
-                        mainExecutor.execute { cameraReady = true }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "CameraProvider setup failed: ${e.message}", e)
-                        mainExecutor.execute { cameraReady = false }
-                    }
-                }, mainExecutor)
-
-                pv
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-        } // end key(useFrontCamera)
-
+        // Viewfinder vignette overlay
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .drawBehind {
-                    val t = topInsetDp.toPx()
-                    val b = bottomInsetDp.toPx()
+                    val t  = topInsetDp.toPx()
+                    val b  = bottomInsetDp.toPx()
                     val cr = 20.dp.toPx()
                     val dark = androidx.compose.ui.graphics.Color(0xCC000000)
 
@@ -541,124 +366,21 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 }
         )
 
-        // Phase 2: use Animatable-driven scale for the snap-in-pop animation
-        val boxScale = boxScaleAnim.value
+        // ── Detection bounding-box overlay ───────────────────────────────────
+        // Drawn in a separate Box so .scale() for the snap animation doesn't
+        // affect the vignette or UI chrome above/below.
 
-        // Dynamic bounding-box overlay — one set of corner brackets per detection,
-        // sized and positioned to match the actual object in the viewfinder.
-        if (detectionBoxes.isNotEmpty()) {
-            // Capture density outside the drawing lambda (composition value)
-            val density = androidx.compose.ui.platform.LocalDensity.current
-            // Reusable Paint for all label draws in this frame — created once here,
-            // not inside the forEach, to avoid allocating one per detection per frame.
-            val labelPaint = remember {
-                android.graphics.Paint().apply {
-                    color          = android.graphics.Color.WHITE
-                    isFakeBoldText = true
-                    isAntiAlias    = true
-                }
-            }
-            // Update text size whenever density changes (e.g. font-scale change)
-            labelPaint.textSize = with(density) { 9.sp.toPx() }
 
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .scale(boxScale)
-                    .drawBehind {
-                        val projection = frameProjection
-                        if (projection == null) return@drawBehind
-
-                        val imageW = projection.imageWidth.toFloat()
-                        val imageH = projection.imageHeight.toFloat()
-                        val cropX = projection.cropX.toFloat()
-                        val cropY = projection.cropY.toFloat()
-                        val cropW = projection.cropWidth.toFloat()
-                        val cropH = projection.cropHeight.toFloat()
-
-                        val cropScaleX = cropW / MODEL_INPUT_SIZE
-                        val cropScaleY = cropH / MODEL_INPUT_SIZE
-                        val scaleFactor = maxOf(size.width / imageW, size.height / imageH)
-                        val translateX = -(((imageW * scaleFactor) - size.width) / 2f)
-                        val translateY = -(((imageH * scaleFactor) - size.height) / 2f)
-                        val labelOffsetPx = with(density) { 8.dp.toPx() }
-
-                        detectionBoxes.forEach { box ->
-                            val detLeft = ((box.cx - box.w / 2f).coerceIn(0f, 1f) * MODEL_INPUT_SIZE)
-                            val detTop = ((box.cy - box.h / 2f).coerceIn(0f, 1f) * MODEL_INPUT_SIZE)
-                            val detRight = ((box.cx + box.w / 2f).coerceIn(0f, 1f) * MODEL_INPUT_SIZE)
-                            val detBottom = ((box.cy + box.h / 2f).coerceIn(0f, 1f) * MODEL_INPUT_SIZE)
-
-                            val imageLeft = detLeft * cropScaleX + cropX
-                            val imageTop = detTop * cropScaleY + cropY
-                            val imageRight = detRight * cropScaleX + cropX
-                            val imageBottom = detBottom * cropScaleY + cropY
-
-                            val screenLeftUnmirrored = imageLeft * scaleFactor + translateX
-                            val screenRightUnmirrored = imageRight * scaleFactor + translateX
-                            val screenTop = imageTop * scaleFactor + translateY
-                            val screenBottom = imageBottom * scaleFactor + translateY
-
-                            val screenLeft = if (projection.mirrored) {
-                                size.width - screenRightUnmirrored
-                            } else {
-                                screenLeftUnmirrored
-                            }
-                            val screenRight = if (projection.mirrored) {
-                                size.width - screenLeftUnmirrored
-                            } else {
-                                screenRightUnmirrored
-                            }
-
-                            drawRect(
-                                color = detectionBoxColor,
-                                topLeft = Offset(screenLeft, screenTop),
-                                size = Size(
-                                    (screenRight - screenLeft).coerceAtLeast(1f),
-                                    (screenBottom - screenTop).coerceAtLeast(1f)
-                                ),
-                                style = Stroke(width = 3f)
-                            )
-
-                            val labelText = box.label.uppercase()
-                            val textWidth = labelPaint.measureText(labelText)
-                            val fm = labelPaint.fontMetrics
-                            val labelTopPadPx = with(density) { 2.dp.toPx() }
-                            val minLabelBaseline = (-fm.ascent) + labelTopPadPx
-                            val maxLabelBaseline = size.height - fm.descent
-                            val labelX = screenLeft.coerceIn(
-                                0f,
-                                (size.width - textWidth).coerceAtLeast(0f)
-                            )
-                            val aboveBaseline = screenTop - labelOffsetPx
-                            val belowBaseline = screenBottom + labelOffsetPx - fm.ascent
-                            val labelBaseline = if (aboveBaseline >= minLabelBaseline) {
-                                aboveBaseline
-                            } else {
-                                belowBaseline
-                            }
-                            val labelY = labelBaseline.coerceIn(minLabelBaseline, maxLabelBaseline)
-
-                            drawContext.canvas.nativeCanvas.drawText(
-                                labelText,
-                                labelX,
-                                labelY,
-                                labelPaint
-                            )
-                        }
-                    }
-            )
-        }
-
+        // ── Viewfinder corner brackets + scan line ────────────────────────────
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(start = sideInsetDp, end = sideInsetDp, top = topInsetDp, bottom = bottomInsetDp)
                 .drawBehind {
                     val bLen = 42.dp.toPx()
-                    val sw = 2.6f
-                    val r = 12.dp.toPx()
-                    val col = camColor.copy(alpha = pulse)
+                    val sw   = 2.6f
+                    val r    = 12.dp.toPx()
+                    val col  = camColor.copy(alpha = pulse)
 
                     drawLine(col, Offset(0f, r + bLen), Offset(0f, r), sw)
                     drawArc(col, 180f, 90f, false, Offset(0f, 0f), Size(r * 2, r * 2), style = Stroke(sw))
@@ -681,15 +403,11 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                         Brush.horizontalGradient(
                             listOf(Color.Transparent, camColor.copy(0.8f), camColor, camColor.copy(0.8f), Color.Transparent)
                         ),
-                        Offset(0f, ly),
-                        Offset(size.width, ly),
-                        1.6f
+                        Offset(0f, ly), Offset(size.width, ly), 1.6f
                     )
                     drawLine(
                         Brush.horizontalGradient(listOf(Color.Transparent, camColor.copy(0.22f), Color.Transparent)),
-                        Offset(0f, ly),
-                        Offset(size.width, ly),
-                        10f
+                        Offset(0f, ly), Offset(size.width, ly), 10f
                     )
                 }
         )
@@ -708,7 +426,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
 
         IconButton(
             onClick = {
-                stopScanningNow()
+
                 navController.popBackStack()
             },
             modifier = Modifier
@@ -725,6 +443,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             )
         }
 
+        // Camera-ready status dot
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -732,12 +451,13 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 .padding(start = 15.dp, top = 55.dp)
                 .size(18.dp)
                 .drawBehind {
-                    drawCircle(camColor, radius = size.minDimension / 2f, alpha = pulse * 0.55f)
+                    drawCircle(camColor, radius = size.minDimension / 2f,    alpha = pulse * 0.55f)
                     drawCircle(camColor, radius = size.minDimension * 0.36f, alpha = pulse * 0.8f)
                     drawCircle(camColor, radius = size.minDimension * 0.22f)
                 }
         )
 
+        // Report button
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
@@ -747,22 +467,17 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 .background(orangeN.copy(alpha = 0.18f))
                 .border(1.dp, orangeN.copy(alpha = 0.55f), RoundedCornerShape(20.dp))
                 .clickable(remember { MutableInteractionSource() }, null) {
-                    isScanningRef.set(false)  // Phase 3: pause detection when report sheet opens
+                    isScanningRef.set(false)
                     showComplaintSheet = true
                 }
                 .padding(horizontal = 11.dp, vertical = 6.dp)
         ) {
             Icon(Icons.Default.Warning, null, tint = orangeN, modifier = Modifier.size(11.dp))
             Spacer(Modifier.width(4.dp))
-            Text(
-                "REPORT",
-                color = orangeN,
-                fontSize = 8.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.2.sp
-            )
+            Text("REPORT", color = orangeN, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
         }
 
+        // Bottom panel: camera flip + generate QR
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -771,7 +486,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 .background(surfN)
                 .padding(bottom = 20.dp)
         ) {
-            // Drag handle
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
@@ -781,7 +495,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                     .background(borderN, RoundedCornerShape(2.dp))
             )
 
-            // Action buttons row: Camera switch FAB + Generate QR pill
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -789,7 +502,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Camera flip FAB
                 androidx.compose.material3.IconButton(
                     onClick = { useFrontCamera = !useFrontCamera },
                     modifier = Modifier
@@ -805,7 +517,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                     )
                 }
 
-                // Generate QR button — fills remaining width
                 Button(
                     onClick = {
                         Log.d(TAG, "Generate QR tapped, items=${detectedItems.size}")
@@ -818,30 +529,20 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                         .shadow(8.dp, RoundedCornerShape(16.dp)),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = redN),
-                    elevation = ButtonDefaults.buttonElevation(
-                        defaultElevation = 6.dp,
-                        pressedElevation = 2.dp
-                    )
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp, pressedElevation = 2.dp)
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_qr_code),
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    Icon(painter = painterResource(id = R.drawable.ic_qr_code), contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Generate QR", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
 
+        // ── Review sheet ──────────────────────────────────────────────────────
         AnimatedVisibility(
             visible = showReviewSheet,
             enter = slideInVertically(
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                ),
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
                 initialOffsetY = { it }
             ) + fadeIn(animationSpec = tween(220)),
             exit = slideOutVertically(
@@ -850,14 +551,16 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             ) + fadeOut(animationSpec = tween(220, easing = FastOutSlowInEasing))
         ) {
             ReviewSheet(
-                items = detectedItems,
+                items    = detectedItems,
                 isSaving = isSaving,
                 onConfirm = {
                     if (hasNavigatedRef.getAndSet(true)) return@ReviewSheet
-                    Log.d(TAG, "Review confirmed, writing to Supabase then local DB")
+                    Log.d(TAG, "Review confirmed — saving locally then navigating")
                     isSaving = true
-                    stopScanningNow()
+
                     showReviewSheet = false
+                    // Generate name and kick off save — navigation happens inside launchSave
+                    // as soon as the local Room write completes (microseconds).
                     scope.launch(Dispatchers.IO) {
                         val existingNames = repository.getAllBoxNames().toSet()
                         val boxName = BoxNameGenerator.generateUnique(existingNames)
@@ -871,13 +574,11 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             )
         }
 
+        // ── Complaint sheet ───────────────────────────────────────────────────
         AnimatedVisibility(
             visible = showComplaintSheet,
             enter = slideInVertically(
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                ),
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
                 initialOffsetY = { it }
             ) + fadeIn(animationSpec = tween(220)),
             exit = slideOutVertically(
@@ -887,55 +588,27 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         ) {
             ComplaintSheet(onDismiss = {
                 showComplaintSheet = false
-                isScanningRef.set(true)   // Phase 3: resume detection when sheet closes
+                isScanningRef.set(true)
             })
         }
 
-        // ── Save-error dialog (shown when Supabase write fails) ─────────────
+        // ── Save-error dialog ─────────────────────────────────────────────────
         if (saveError != null) {
             AlertDialog(
-                onDismissRequest = {
-                    saveError = null
-                    retryAction = null
-                    isScanningRef.set(true)
-                },
-                title = {
-                    Text("Connection Failed", color = whiteN, fontWeight = FontWeight.Bold)
-                },
+                onDismissRequest = { saveError = null; retryAction = null; isScanningRef.set(true) },
+                title = { Text("Save Failed", color = whiteN, fontWeight = FontWeight.Bold) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(
-                            saveError!!.userMessage,
-                            color = mutedN,
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp
-                        )
+                        Text(saveError!!.userMessage, color = mutedN, fontSize = 14.sp, lineHeight = 20.sp)
                         HorizontalDivider(color = borderN)
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                saveError!!.technicalDetails,
-                                color = mutedN.copy(alpha = 0.8f),
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                lineHeight = 15.sp
-                            )
-                            Text(
-                                "Code: ${saveError!!.errorCode}",
-                                color = orangeN,
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
+                            Text(saveError!!.technicalDetails, color = mutedN.copy(alpha = 0.8f), fontSize = 11.sp, fontFamily = FontFamily.Monospace, lineHeight = 15.sp)
+                            Text("Code: ${saveError!!.errorCode}", color = orangeN, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                         }
                     }
                 },
                 dismissButton = {
-                    TextButton(
-                        onClick = {
-                            saveError = null
-                            retryAction = null
-                            isScanningRef.set(true)
-                        }
-                    ) {
+                    TextButton(onClick = { saveError = null; retryAction = null; isScanningRef.set(true) }) {
                         Text("Dismiss", color = mutedN)
                     }
                 },
@@ -949,55 +622,59 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                             retry?.invoke()
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = redN)
-                    ) {
-                        Text("Retry", color = Color.White)
-                    }
+                    ) { Text("Retry", color = Color.White) }
                 },
                 containerColor = surfN,
                 titleContentColor = whiteN
             )
         }
-
     }
 }
 
-private data class FrameProjection(
-    val imageWidth: Int,
+// ── Data classes ──────────────────────────────────────────────────────────────
+
+data class FrameProjection(
+    val imageWidth:  Int,
     val imageHeight: Int,
-    val cropX: Int,
-    val cropY: Int,
-    val cropWidth: Int,
-    val cropHeight: Int,
-    val mirrored: Boolean
+    val cropX:       Int,
+    val cropY:       Int,
+    val cropWidth:   Int,
+    val cropHeight:  Int,
+    // View dimensions at the time the frame was captured — kept for debugging.
+    val viewWidth:   Int,
+    val viewHeight:  Int,
+    val mirrored:    Boolean
 )
 
-private data class TrackedDetection(
-    val label: String,
-    val box: DetectionBox,
+data class TrackedDetection(
+    val label:      String,
+    val box:        DetectionBox,
     val lastSeenMs: Long
 )
 
-private data class TemporalDebounceResult(
-    val visibleBoxes: List<DetectionBox>,
+data class TemporalDebounceResult(
+    val visibleBoxes:    List<DetectionBox>,
     val newlyRegistered: List<DetectionBox>
 )
 
-private data class CooldownKey(
+data class CooldownKey(
     val label: String,
     val cellX: Int,
     val cellY: Int
 )
 
-private const val COOLDOWN_CLEANUP_MULTIPLIER = 2L
-private const val COOLDOWN_SPATIAL_GRID_BINS = 8f
+// ── NMS + temporal debounce ───────────────────────────────────────────────────
 
-private fun applySameLabelNms(
+private const val COOLDOWN_CLEANUP_MULTIPLIER  = 2L
+private const val COOLDOWN_SPATIAL_GRID_BINS   = 8f
+
+fun applySameLabelNms(
     boxes: List<DetectionBox>,
     iouThreshold: Float
 ): List<DetectionBox> {
-    val sorted = boxes.sortedByDescending { it.confidence }
+    val sorted     = boxes.sortedByDescending { it.confidence }
     val suppressed = BooleanArray(sorted.size)
-    val kept = mutableListOf<DetectionBox>()
+    val kept       = mutableListOf<DetectionBox>()
     for (i in sorted.indices) {
         if (suppressed[i]) continue
         val best = sorted[i]
@@ -1005,105 +682,64 @@ private fun applySameLabelNms(
         for (j in i + 1 until sorted.size) {
             if (suppressed[j]) continue
             val candidate = sorted[j]
-            if (
-                candidate.label == best.label &&
-                detectionIoU(best, candidate) >= iouThreshold
-            ) {
+            if (candidate.label == best.label && detectionIoU(best, candidate) >= iouThreshold)
                 suppressed[j] = true
-            }
         }
     }
     return kept
 }
 
-private fun applyTemporalDebounce(
-    boxes: List<DetectionBox>,
-    tracks: MutableList<TrackedDetection>,
-    cooldownMap: MutableMap<CooldownKey, Long>,
-    nowMs: Long,
+fun applyTemporalDebounce(
+    boxes:        List<DetectionBox>,
+    tracks:       MutableList<TrackedDetection>,
+    cooldownMap:  MutableMap<CooldownKey, Long>,
+    nowMs:        Long,
     iouThreshold: Float,
-    cooldownMs: Long,
+    cooldownMs:   Long,
     staleTrackMs: Long
 ): TemporalDebounceResult {
-    tracks.removeAll { nowMs - it.lastSeenMs > staleTrackMs }
-    cooldownMap.entries.removeAll {
-        nowMs - it.value > cooldownMs * COOLDOWN_CLEANUP_MULTIPLIER
-    }
+    tracks.removeAll    { nowMs - it.lastSeenMs > staleTrackMs }
+    cooldownMap.entries.removeAll { nowMs - it.value > cooldownMs * COOLDOWN_CLEANUP_MULTIPLIER }
 
-    val visible = mutableListOf<DetectionBox>()
+    val visible         = mutableListOf<DetectionBox>()
     val newlyRegistered = mutableListOf<DetectionBox>()
+    val maxGridIndex    = COOLDOWN_SPATIAL_GRID_BINS.toInt() - 1
 
-    val sortedBoxes = boxes.sortedByDescending { it.confidence }
-    val maxGridIndex = COOLDOWN_SPATIAL_GRID_BINS.toInt() - 1
-    for (box in sortedBoxes) {
+    for (box in boxes.sortedByDescending { it.confidence }) {
         val cooldownKey = CooldownKey(
             label = box.label,
-            cellX = (box.cx * COOLDOWN_SPATIAL_GRID_BINS)
-                .toInt()
-                .coerceIn(0, maxGridIndex),
-            cellY = (box.cy * COOLDOWN_SPATIAL_GRID_BINS)
-                .toInt()
-                .coerceIn(0, maxGridIndex)
+            cellX = (box.cx * COOLDOWN_SPATIAL_GRID_BINS).toInt().coerceIn(0, maxGridIndex),
+            cellY = (box.cy * COOLDOWN_SPATIAL_GRID_BINS).toInt().coerceIn(0, maxGridIndex)
         )
 
         val bestMatch = tracks.indices
             .asSequence()
             .filter { tracks[it].label == box.label }
-            .map { index -> index to detectionIoU(tracks[index].box, box) }
+            .map    { idx -> idx to detectionIoU(tracks[idx].box, box) }
             .maxByOrNull { it.second }
 
         if (bestMatch != null && bestMatch.second >= iouThreshold) {
-            val matchingIndex = bestMatch.first
-            tracks[matchingIndex] = tracks[matchingIndex].copy(
-                box = box,
-                lastSeenMs = nowMs
-            )
-            visible.add(box)
-            registerIfCooldownPassed(
-                box = box,
-                key = cooldownKey,
-                cooldownMap = cooldownMap,
-                nowMs = nowMs,
-                cooldownMs = cooldownMs,
-                newlyRegistered = newlyRegistered
-            )
-            continue
+            tracks[bestMatch.first] = tracks[bestMatch.first].copy(box = box, lastSeenMs = nowMs)
+        } else {
+            tracks.add(TrackedDetection(label = box.label, box = box, lastSeenMs = nowMs))
         }
-
-        tracks.add(
-            TrackedDetection(
-                label = box.label,
-                box = box,
-                lastSeenMs = nowMs
-            )
-        )
         visible.add(box)
-        registerIfCooldownPassed(
-            box = box,
-            key = cooldownKey,
-            cooldownMap = cooldownMap,
-            nowMs = nowMs,
-            cooldownMs = cooldownMs,
-            newlyRegistered = newlyRegistered
-        )
+        registerIfCooldownPassed(box, cooldownKey, cooldownMap, nowMs, cooldownMs, newlyRegistered)
     }
 
-    return TemporalDebounceResult(
-        visibleBoxes = visible,
-        newlyRegistered = newlyRegistered
-    )
+    return TemporalDebounceResult(visibleBoxes = visible, newlyRegistered = newlyRegistered)
 }
 
 /**
- * Registers [box] as newly detected for [key] only when the cooldown window has elapsed.
- * This prevents duplicate rapid-fire registrations for the same spatial label bucket.
+ * Registers [box] into [newlyRegistered] only if the cooldown window has elapsed
+ * for [key], preventing rapid-fire duplicate registrations.
  */
 private fun registerIfCooldownPassed(
-    box: DetectionBox,
-    key: CooldownKey,
-    cooldownMap: MutableMap<CooldownKey, Long>,
-    nowMs: Long,
-    cooldownMs: Long,
+    box:             DetectionBox,
+    key:             CooldownKey,
+    cooldownMap:     MutableMap<CooldownKey, Long>,
+    nowMs:           Long,
+    cooldownMs:      Long,
     newlyRegistered: MutableList<DetectionBox>
 ) {
     val lastRegistered = cooldownMap[key]
@@ -1114,54 +750,43 @@ private fun registerIfCooldownPassed(
 }
 
 private fun detectionIoU(a: DetectionBox, b: DetectionBox): Float {
-    val ax1 = a.cx - a.w / 2f
-    val ay1 = a.cy - a.h / 2f
-    val ax2 = a.cx + a.w / 2f
-    val ay2 = a.cy + a.h / 2f
+    val ax1 = a.cx - a.w / 2f;  val ay1 = a.cy - a.h / 2f
+    val ax2 = a.cx + a.w / 2f;  val ay2 = a.cy + a.h / 2f
+    val bx1 = b.cx - b.w / 2f;  val by1 = b.cy - b.h / 2f
+    val bx2 = b.cx + b.w / 2f;  val by2 = b.cy + b.h / 2f
 
-    val bx1 = b.cx - b.w / 2f
-    val by1 = b.cy - b.h / 2f
-    val bx2 = b.cx + b.w / 2f
-    val by2 = b.cy + b.h / 2f
-
-    val interW = (minOf(ax2, bx2) - maxOf(ax1, bx1)).coerceAtLeast(0f)
-    val interH = (minOf(ay2, by2) - maxOf(ay1, by1)).coerceAtLeast(0f)
+    val interW    = (minOf(ax2, bx2) - maxOf(ax1, bx1)).coerceAtLeast(0f)
+    val interH    = (minOf(ay2, by2) - maxOf(ay1, by1)).coerceAtLeast(0f)
     val interArea = interW * interH
-    val areaA = (ax2 - ax1).coerceAtLeast(0f) * (ay2 - ay1).coerceAtLeast(0f)
-    val areaB = (bx2 - bx1).coerceAtLeast(0f) * (by2 - by1).coerceAtLeast(0f)
+    val areaA     = (ax2 - ax1).coerceAtLeast(0f) * (ay2 - ay1).coerceAtLeast(0f)
+    val areaB     = (bx2 - bx1).coerceAtLeast(0f) * (by2 - by1).coerceAtLeast(0f)
     val unionArea = areaA + areaB - interArea
     return if (unionArea <= 0f) 0f else interArea / unionArea
 }
 
 /**
- * Derives a short, human-readable error code from the exception.
- * HTTP errors include the status code (e.g. "HTTP_500").
- * All other errors use the fully-qualified class name.
+ * Derives a short human-readable error code from the exception.
  */
 private fun classifyError(e: Exception): String {
-    val message = e.message ?: ""
-    // Look for a 3-digit HTTP status code in the exception message
+    val message   = e.message ?: ""
     val httpMatch = Regex("\\b([1-5]\\d{2})\\b").find(message)
-    return if (httpMatch != null) {
-        "HTTP_${httpMatch.value}"
-    } else {
-        e::class.java.name
-    }
+    return if (httpMatch != null) "HTTP_${httpMatch.value}" else e::class.java.name
 }
+
+// ── ReviewSheet ───────────────────────────────────────────────────────────────
 
 @Composable
 fun ReviewSheet(
-    items: SnapshotStateList<DetectedItem>,
-    isSaving: Boolean = false,
+    items:     SnapshotStateList<DetectedItem>,
+    isSaving:  Boolean = false,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    // Animate scrim alpha and sheet scale/alpha on first composition
     var entered by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { entered = true }
-    val scrimAlpha  by animateFloatAsState(if (entered) 0.6f else 0f,  tween(280), label = "scrim")
-    val sheetScale  by animateFloatAsState(if (entered) 1f  else 0.92f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow), label = "scale")
-    val sheetAlpha  by animateFloatAsState(if (entered) 1f  else 0f,  tween(220), label = "alpha")
+    val scrimAlpha by animateFloatAsState(if (entered) 0.6f else 0f,   tween(280),  label = "scrim")
+    val sheetScale by animateFloatAsState(if (entered) 1f  else 0.92f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow), label = "scale")
+    val sheetAlpha by animateFloatAsState(if (entered) 1f  else 0f,   tween(220),  label = "alpha")
 
     Box(
         modifier = Modifier
@@ -1184,17 +809,11 @@ fun ReviewSheet(
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
                     .padding(bottom = 20.dp)
-                    .width(36.dp)
-                    .height(4.dp)
+                    .width(36.dp).height(4.dp)
                     .background(borderN, RoundedCornerShape(2.dp))
             )
             Text("Are you sure?", color = whiteN, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text(
-                "Review quantities before generating QR",
-                color = mutedN,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
-            )
+            Text("Review quantities before generating QR", color = mutedN, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 20.dp))
 
             Column(
                 modifier = Modifier
@@ -1208,9 +827,7 @@ fun ReviewSheet(
                 if (items.isEmpty()) {
                     Text(
                         "No items detected yet.\nYou can still generate a QR for an empty box.",
-                        color = mutedN,
-                        fontSize = 13.sp,
-                        textAlign = TextAlign.Center,
+                        color = mutedN, fontSize = 13.sp, textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth()
                     )
                 } else {
@@ -1239,29 +856,20 @@ fun ReviewSheet(
 
             Spacer(Modifier.height(8.dp))
             val reviewTotal: Int = items.sumOf { it.count }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Total items", color = mutedN, fontSize = 13.sp)
                 Text("$reviewTotal", color = tealN, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.height(20.dp))
             Button(
-                onClick = onConfirm,
-                enabled = !isSaving,
+                onClick  = onConfirm,
+                enabled  = !isSaving,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = redN)
+                shape    = RoundedCornerShape(12.dp),
+                colors   = ButtonDefaults.buttonColors(containerColor = redN)
             ) {
                 if (isSaving) {
-                    CircularProgressIndicator(
-                        color = Color.White,
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp
-                    )
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(8.dp))
                     Text("Saving…", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 } else {
@@ -1278,8 +886,8 @@ fun ReviewSheet(
 @Composable
 private fun SmallQtyButton(text: String, active: Boolean = false, onClick: () -> Unit) {
     Text(
-        text = text,
-        color = whiteN,
+        text     = text,
+        color    = whiteN,
         fontSize = 16.sp,
         modifier = Modifier
             .size(28.dp)
@@ -1291,18 +899,20 @@ private fun SmallQtyButton(text: String, active: Boolean = false, onClick: () ->
     )
 }
 
+// ── ComplaintSheet ────────────────────────────────────────────────────────────
+
 @Composable
 fun ComplaintSheet(onDismiss: () -> Unit) {
-    val reasons = listOf("Item damaged", "Wrong item", "Torn / worn out", "Missing label", "Other")
+    val reasons  = listOf("Item damaged", "Wrong item", "Torn / worn out", "Missing label", "Other")
     var selected  by remember { mutableStateOf<String?>(null) }
     var notes     by remember { mutableStateOf("") }
     var submitted by remember { mutableStateOf(false) }
 
     var entered by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { entered = true }
-    val scrimAlpha by animateFloatAsState(if (entered) 0.6f else 0f, tween(280), label = "cScrim")
-    val sheetScale by animateFloatAsState(if (entered) 1f else 0.92f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow), label = "cScale")
-    val sheetAlpha by animateFloatAsState(if (entered) 1f else 0f, tween(220), label = "cAlpha")
+    val scrimAlpha by animateFloatAsState(if (entered) 0.6f else 0f,   tween(280), label = "cScrim")
+    val sheetScale by animateFloatAsState(if (entered) 1f  else 0.92f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow), label = "cScale")
+    val sheetAlpha by animateFloatAsState(if (entered) 1f  else 0f,   tween(220), label = "cAlpha")
 
     Box(
         modifier = Modifier
@@ -1325,8 +935,7 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
                     .padding(bottom = 20.dp)
-                    .width(36.dp)
-                    .height(4.dp)
+                    .width(36.dp).height(4.dp)
                     .background(borderN, RoundedCornerShape(2.dp))
             )
 
@@ -1349,10 +958,10 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
                     Text("Your complaint has been logged.", color = mutedN, fontSize = 13.sp, textAlign = TextAlign.Center)
                     Spacer(Modifier.height(8.dp))
                     Button(
-                        onClick = onDismiss,
+                        onClick  = onDismiss,
                         modifier = Modifier.fillMaxWidth().height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = redN)
+                        shape    = RoundedCornerShape(12.dp),
+                        colors   = ButtonDefaults.buttonColors(containerColor = redN)
                     ) { Text("Done", color = Color.White, fontWeight = FontWeight.SemiBold) }
                 }
             } else {
@@ -1361,12 +970,7 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
                     Spacer(Modifier.width(8.dp))
                     Text("Report an Issue", color = whiteN, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 }
-                Text(
-                    "Select the issue type below.",
-                    color = mutedN,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
-                )
+                Text("Select the issue type below.", color = mutedN, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 16.dp))
 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     reasons.forEach { reason ->
@@ -1377,11 +981,7 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(if (isSelected) orangeN.copy(alpha = 0.12f) else surfAltN)
-                                .border(
-                                    1.dp,
-                                    if (isSelected) orangeN.copy(alpha = 0.6f) else borderN,
-                                    RoundedCornerShape(10.dp)
-                                )
+                                .border(1.dp, if (isSelected) orangeN.copy(alpha = 0.6f) else borderN, RoundedCornerShape(10.dp))
                                 .clickable(remember { MutableInteractionSource() }, null) { selected = reason }
                                 .padding(horizontal = 14.dp, vertical = 12.dp)
                         ) {
@@ -1394,8 +994,8 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
                             Spacer(Modifier.width(12.dp))
                             Text(
                                 reason,
-                                color = if (isSelected) whiteN else mutedN,
-                                fontSize = 14.sp,
+                                color      = if (isSelected) whiteN else mutedN,
+                                fontSize   = 14.sp,
                                 fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
                             )
                         }
@@ -1405,18 +1005,18 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
                 Spacer(Modifier.height(14.dp))
 
                 OutlinedTextField(
-                    value = notes,
-                    onValueChange = { value -> notes = value },
-                    placeholder = { Text("Additional notes (optional)…", color = mutedN, fontSize = 13.sp) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = tealN,
-                        unfocusedBorderColor = borderN,
-                        focusedTextColor = whiteN,
-                        unfocusedTextColor = whiteN,
-                        cursorColor = tealN,
-                        focusedContainerColor = surfAltN,
+                    value           = notes,
+                    onValueChange   = { v -> notes = v },
+                    placeholder     = { Text("Additional notes (optional)…", color = mutedN, fontSize = 13.sp) },
+                    modifier        = Modifier.fillMaxWidth(),
+                    shape           = RoundedCornerShape(10.dp),
+                    colors          = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor    = tealN,
+                        unfocusedBorderColor  = borderN,
+                        focusedTextColor      = whiteN,
+                        unfocusedTextColor    = whiteN,
+                        cursorColor           = tealN,
+                        focusedContainerColor   = surfAltN,
                         unfocusedContainerColor = surfAltN
                     ),
                     maxLines = 3
@@ -1425,11 +1025,11 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
                 Spacer(Modifier.height(16.dp))
 
                 Button(
-                    onClick = { if (selected != null) submitted = true },
+                    onClick  = { if (selected != null) submitted = true },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = orangeN,
+                    shape    = RoundedCornerShape(12.dp),
+                    colors   = ButtonDefaults.buttonColors(
+                        containerColor         = orangeN,
                         disabledContainerColor = orangeN.copy(alpha = 0.3f)
                     ),
                     enabled = selected != null
@@ -1442,11 +1042,11 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
                 Spacer(Modifier.height(10.dp))
 
                 OutlinedButton(
-                    onClick = onDismiss,
+                    onClick  = onDismiss,
                     modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, borderN),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = mutedN)
+                    shape    = RoundedCornerShape(12.dp),
+                    border   = BorderStroke(1.dp, borderN),
+                    colors   = ButtonDefaults.outlinedButtonColors(contentColor = mutedN)
                 ) { Text("Cancel", fontSize = 14.sp) }
 
                 Spacer(Modifier.height(8.dp))

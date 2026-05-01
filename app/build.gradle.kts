@@ -21,9 +21,6 @@ plugins {
 android {
     namespace = "com.example.myapplication"
     compileSdk = 36
-    androidResources {
-        noCompress += "tflite"
-    }
     defaultConfig {
         applicationId = "com.example.myapplication"
         minSdk = 24
@@ -65,6 +62,9 @@ android {
         compose = true
         buildConfig = true
 
+    }
+    androidResources {
+        noCompress += "tflite"
     }
 }
 
