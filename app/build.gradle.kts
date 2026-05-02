@@ -110,6 +110,7 @@ dependencies {
 
     // Core and PostgREST (Database)
     implementation("io.github.jan-tennert.supabase:postgrest-kt")
+    implementation("io.github.jan-tennert.supabase:auth-kt")
 
     // Ktor client engine (required by Supabase)
     implementation("io.ktor:ktor-client-android:2.3.12")

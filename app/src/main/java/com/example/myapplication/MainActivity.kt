@@ -23,7 +23,7 @@ class MainActivity : ComponentActivity() {
 
             NavHost(
                 navController = navController,
-                startDestination = "inventory_home",
+                startDestination = "launcher",
                 enterTransition = {
                     fadeIn(tween(300, easing = FastOutSlowInEasing)) +
                         slideInVertically(tween(350, easing = FastOutSlowInEasing)) { it / 10 }
@@ -39,6 +39,18 @@ class MainActivity : ComponentActivity() {
                         slideOutVertically(tween(300, easing = FastOutSlowInEasing)) { it / 10 }
                 }
             ) {
+
+                composable("launcher") {
+                    LauncherScreen(navController = navController)
+                }
+
+                composable("sign_in") {
+                    SignInScreen(navController = navController)
+                }
+
+                composable("forgot_password") {
+                    ForgotPasswordScreen(navController = navController)
+                }
 
                 composable("inventory_home") {
                     InventoryScreen(navController = navController)
