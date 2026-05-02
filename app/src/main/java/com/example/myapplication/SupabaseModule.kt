@@ -1,5 +1,6 @@
 package com.example.myapplication
 import android.util.Log
+import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import com.example.myapplication.BuildConfig
@@ -26,6 +27,7 @@ object SupabaseModule {
                 supabaseUrl = url,
                 supabaseKey = BuildConfig.SUPABASE_KEY
             ) {
+                install(Auth)
                 install(Postgrest)
             }.also { Log.d(TAG_SB, "createSupabaseClient succeeded") }
         } catch (e: Exception) {
