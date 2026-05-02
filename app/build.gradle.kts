@@ -109,14 +109,14 @@ dependencies {
 
 
     // Supabase
-    implementation(platform("io.github.jan-tennert.supabase:bom:2.5.4"))
+    implementation(platform("io.github.jan-tennert.supabase:bom:3.6.0"))
     implementation("io.github.jan-tennert.supabase:postgrest-kt")
     implementation("io.github.jan-tennert.supabase:auth-kt")
     implementation("io.github.jan-tennert.supabase:realtime-kt")
     implementation("io.github.jan-tennert.supabase:storage-kt")
 
 // Ktor
-    implementation("io.ktor:ktor-client-android:2.3.12")
+    implementation("io.ktor:ktor-client-android:3.4.3")
 
     // Kotlin Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
