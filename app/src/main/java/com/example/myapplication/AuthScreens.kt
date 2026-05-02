@@ -163,7 +163,7 @@ fun SignInScreen(navController: NavController) {
                 runCatching {
                     SupabaseModule.client.auth.signInWith(Email) {
                         email = trimmedEmail
-                        password = password
+                        this.password = password
                     }
                 }
             }
