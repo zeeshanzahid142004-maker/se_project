@@ -130,8 +130,12 @@ fun SignInScreen(navController: NavController) {
 
     fun submit() {
         val trimmedEmail = email.trim()
-        if (trimmedEmail.isBlank() || password.isBlank()) {
-            errorMessage = "Email and password are required."
+        if (trimmedEmail.isBlank()) {
+            errorMessage = "Email is required."
+            return
+        }
+        if (password.isBlank()) {
+            errorMessage = "Password is required."
             return
         }
         if (isLoading) return
