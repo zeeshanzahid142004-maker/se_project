@@ -162,7 +162,7 @@ fun SignInScreen(navController: NavController) {
             val signInResult = withContext(Dispatchers.IO) {
                 runCatching {
                     SupabaseModule.client.auth.signInWith(Email) {
-                        email = trimmedEmail
+                        this.email = trimmedEmail
                         this.password = password
                     }
                 }
