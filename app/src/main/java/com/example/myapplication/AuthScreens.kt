@@ -94,7 +94,8 @@ fun LauncherScreen(navController: NavController) {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Image(
-                painter = painterResource(id = R.mipmap.ic_launcher),
+                // ✅ Use the foreground vector drawable, which Compose fully supports
+                painter = painterResource(id = R.drawable.ic_launcher_foreground),
                 contentDescription = "App logo",
                 modifier = Modifier.size(88.dp)
             )
