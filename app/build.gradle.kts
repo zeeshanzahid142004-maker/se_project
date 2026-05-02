@@ -21,6 +21,12 @@ plugins {
 android {
     namespace = "com.example.myapplication"
     compileSdk = 36
+    androidResources {
+        noCompress += "tflite"
+    }
+    packagingOptions {
+        pickFirst("**/*.so")
+    }
     defaultConfig {
         applicationId = "com.example.myapplication"
         minSdk = 24
@@ -63,9 +69,7 @@ android {
         buildConfig = true
 
     }
-    androidResources {
-        noCompress += "tflite"
-    }
+
 }
 
 dependencies {
@@ -117,13 +121,12 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
-
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.17.0")
     // TFLite
+
+        // Remove any old tensorflow-lite line and replace with these:
+
     implementation("org.tensorflow:tensorflow-lite:2.14.0")
     implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
-    implementation("org.tensorflow:tensorflow-lite-gpu:2.14.0")
-    implementation("org.tensorflow:tensorflow-lite:2.14.0")
-    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
-    implementation("org.tensorflow:tensorflow-lite-gpu:2.14.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
 }

@@ -5,8 +5,6 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -32,7 +30,7 @@ import java.util.concurrent.ExecutorService
 @Composable
 fun CameraPreview(
     useFrontCamera:    Boolean,
-    detector:          YoloDetector?,
+    detectorProvider:    () -> YoloDetector?,
     isScanningRef:     AtomicBoolean,
     sideInsetDp:       androidx.compose.ui.unit.Dp,
     topInsetDp:        androidx.compose.ui.unit.Dp,
@@ -91,18 +89,31 @@ fun CameraPreview(
                                 .build()
                                 .also { ia ->
                                     imageAnalysisRef = ia
-                                    ia.setAnalyzer(analysisExecutor) { imageProxy ->
-                                        if (!isScanningRef.get()) {
+                                    ia.setAnalyzer(analysisExecutor) {
+
+                                        imageProxy ->
+                                        Log.e("YOLO_DEBUG", "Analyzer fired — scanning=${isScanningRef.get()} detector=${detectorProvider() != null}")
+                                        val currentDetector = detectorProvider ()
+                                        if (currentDetector == null) {
                                             imageProxy.close(); return@setAnalyzer
                                         }
                                         val now = System.currentTimeMillis()
                                         if (now - lastInferenceMs < 800L) {
+                                            Log.e("YOLO_DEBUG", "❌ Skipped — throttled")
                                             imageProxy.close(); return@setAnalyzer
                                         }
+
+                                        if (detectorProvider ()== null) {
+                                            Log.e("YOLO_DEBUG", "❌ Skipped — detector is null")
+                                            imageProxy.close(); return@setAnalyzer
+                                        }
+
+
+
                                         lastInferenceMs = now
 
                                         val mediaImage = imageProxy.image
-                                        if (mediaImage == null || detector == null) {
+                                        if (mediaImage == null || detectorProvider() == null) {
                                             imageProxy.close(); return@setAnalyzer
                                         }
 
@@ -141,7 +152,7 @@ fun CameraPreview(
                                             val cropped   = android.graphics.Bitmap.createBitmap(rotated, cropLeft, cropTop, safeCropW, safeCropH)
 
                                             try {
-                                                val boxes = detector.detectBoxes(cropped)
+                                                val boxes = detectorProvider()?.detectBoxes(cropped) ?: emptyList()
                                                 mainExecutor.execute {
                                                     if (!isScanningRef.get()) {
                                                         onBoxesDetected(emptyList())
