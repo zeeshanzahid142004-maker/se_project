@@ -44,17 +44,18 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 
-import io.github.jan.supabase.gotrue.providers.builtin.Email
-import io.github.jan.supabase.gotrue.auth
+// Updated Supabase v3 Imports
+import io.github.jan.supabase.auth.providers.builtin.Email
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -167,7 +168,8 @@ fun SignInScreen(navController: NavController) {
             }
             val signInResult = withContext(Dispatchers.IO) {
                 runCatching {
-                    SupabaseModule.client.auth.signInWith(io.github.jan.supabase.gotrue.providers.builtin.Email) {
+                    // Updated to use the imported v3 Email object
+                    SupabaseModule.client.auth.signInWith(Email) {
                         this.email = trimmedEmail
                         this.password = password
                     }

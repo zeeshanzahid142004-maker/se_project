@@ -108,16 +108,17 @@ dependencies {
 //supabase
 
 
-    // Supabase
-    implementation(platform("io.github.jan-tennert.supabase:bom:3.6.0"))
+    // 1. Upgrade the BOM to a stable 3.x version
+    implementation(platform("io.github.jan-tennert.supabase:bom:3.1.4"))
+
     implementation("io.github.jan-tennert.supabase:postgrest-kt")
+// 2. This will now resolve perfectly because auth-kt exists in the v3 BOM
     implementation("io.github.jan-tennert.supabase:auth-kt")
     implementation("io.github.jan-tennert.supabase:realtime-kt")
     implementation("io.github.jan-tennert.supabase:storage-kt")
 
-// Ktor
-    implementation("io.ktor:ktor-client-android:3.4.3")
-
+// 3. Supabase v3 requires Ktor 3.0.0+
+    implementation("io.ktor:ktor-client-android:3.0.3")
     // Kotlin Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
