@@ -138,6 +138,8 @@ fun InventoryScreen(navController: NavController) {
     var statsLoading by remember { mutableStateOf(true) }
     var totalStats by remember { mutableStateOf<TotalStats?>(null) }
 
+    val activeDateSet = remember(activityDates) { activityDates.toSet() }
+
     var selectedDay by remember { mutableStateOf<LocalDate?>(null) }
     var dayStatsLoading by remember { mutableStateOf(false) }
     var dayStats by remember { mutableStateOf<DayStats?>(null) }
@@ -226,7 +228,7 @@ fun InventoryScreen(navController: NavController) {
                 onDayClick = { date ->
                     selectedDay = date
                     val userId = currentUserId
-                    if (userId == null || activityDates.contains(date).not()) {
+                    if (userId == null || activeDateSet.contains(date).not()) {
                         dayStatsLoading = false
                         dayStats = DayStats(0, 0)
                         return@CalendarActivityCard
