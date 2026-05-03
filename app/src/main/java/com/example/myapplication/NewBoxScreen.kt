@@ -60,6 +60,7 @@ import com.example.myapplication.data.BoxRepository
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
+import io.github.jan.supabase.auth.auth
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -164,7 +165,12 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 }
 
                 kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
-                    try { supabaseRepo.saveBoxWithItems(boxName, itemsSnapshot) }
+                    val currentUserId = SupabaseModule.client.auth.currentUserOrNull()?.id
+                    if (currentUserId == null) {
+                        Log.w(TAG, "Supabase sync skipped: no authenticated user")
+                        return@launch
+                    }
+                    try { supabaseRepo.saveBoxWithItems(boxName, itemsSnapshot, currentUserId) }
                     catch (e: Exception) { Log.e(TAG, "Supabase sync failed: ${e.message}", e) }
                 }
 
