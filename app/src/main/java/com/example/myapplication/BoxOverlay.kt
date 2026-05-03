@@ -97,7 +97,9 @@ fun BoxOverlay(
                     val pillW   = textW + bgPadW * 2f
                     val pillH   = textH + bgPadH * 2f
                     val pillLeft = centerX - pillW / 2f
-                    val pillTop  = scrTop - pillH - with(density) { 4.dp.toPx() }
+                    val vignetteTop = with(density) { 68.dp.toPx() }
+                    val pillTopRaw  = scrTop - pillH - with(density) { 4.dp.toPx() }
+                    val pillTop     = pillTopRaw.coerceAtLeast(vignetteTop + with(density) { 4.dp.toPx() })
 
                     // Shadow
                     drawRoundRect(

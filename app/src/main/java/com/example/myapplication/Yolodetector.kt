@@ -111,13 +111,25 @@ class YoloDetector(context: Context) {
                     }
                 }
 
+                val nmsResult = nms(detections)
+
+// Log ALL detections before cooldown so we can see confidence values
+                nmsResult.forEach { box ->
+                    Log.e("YOLO_DEBUG", "PRE-COOLDOWN: ${box.label}@${"%.3f".format(box.confidence)}")
+                }
+
                 val now = System.currentTimeMillis()
-                nms(detections).filter { box ->
+                val filtered = nmsResult.filter { box ->
                     val last = lastDetectedMs[box.label] ?: 0L
                     if (now - last >= DETECTION_COOLDOWN_MS) {
                         lastDetectedMs[box.label] = now; true
-                    } else false
+                    } else {
+                        Log.e("YOLO_DEBUG", "COOLDOWN active for ${box.label} — ${(now - last)}ms elapsed")
+                        false
+                    }
                 }
+                Log.e("YOLO_DEBUG", "After cooldown: ${filtered.map { "${it.label}@${"%.2f".format(it.confidence)}" }}")
+                filtered
             } catch (e: Exception) {
                 Log.e("YOLO_DEBUG", "Inference failed: ${e.message}", e)
                 emptyList()
