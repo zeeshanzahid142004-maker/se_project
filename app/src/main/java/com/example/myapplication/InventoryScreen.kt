@@ -1,4 +1,6 @@
 package com.example.myapplication
+import android.os.Build
+import android.util.Log
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
@@ -10,20 +12,25 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Surface
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
@@ -31,7 +38,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.*
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -212,7 +218,9 @@ fun InventoryScreen(navController: NavController) {
             Spacer(Modifier.height(28.dp))
 
             EmployeeProfileCard(
-                modifier = Modifier.padding(horizontal = 20.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
                 loading = profileLoading,
                 profile = profile,
                 message = profileMessage
@@ -221,7 +229,9 @@ fun InventoryScreen(navController: NavController) {
             Spacer(Modifier.height(16.dp))
 
             CalendarActivityCard(
-                modifier = Modifier.padding(horizontal = 20.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
                 month = currentMonth,
                 today = today,
                 loading = activityLoading,
@@ -257,12 +267,12 @@ fun InventoryScreen(navController: NavController) {
             Spacer(Modifier.height(16.dp))
 
             StatsRow(
-                modifier = Modifier.padding(horizontal = 20.dp),
+                modifier = Modifier.padding(horizontal = 16.dp),
                 loading = statsLoading,
                 stats = totalStats
             )
 
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(8.dp))
 
             Row(
                 modifier = Modifier
@@ -315,52 +325,62 @@ private fun EmployeeProfileCard(
         CardShimmer(modifier = modifier)
         return
     }
-    Box(
-        modifier = modifier
-            .shadow(6.dp, shape)
-            .clip(shape)
-            .background(HomePalette.surface)
-            .border(1.dp, HomePalette.border, shape)
-            .padding(18.dp)
-    ) {
-        if (profile == null) {
-            Text(
-                text = message ?: "Employee profile unavailable",
-                color = HomePalette.muted,
-                fontSize = 13.sp
+    Box(modifier = modifier) {
+        Box(
+            modifier = Modifier.shadow(
+                elevation = 16.dp,
+                shape = shape,
+                ambientColor = HomePalette.teal.copy(alpha = 0.08f),
+                spotColor = HomePalette.teal.copy(alpha = 0.12f)
             )
-        } else {
-            Column {
-                Text(
-                    text = if (profile.fullName.isBlank()) "Unnamed Employee" else profile.fullName,
-                    color = HomePalette.white,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(HomePalette.teal.copy(alpha = 0.18f))
-                            .border(1.dp, HomePalette.teal.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                    ) {
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = shape,
+                colors = CardDefaults.cardColors(containerColor = HomePalette.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 12.dp, pressedElevation = 4.dp),
+                border = BorderStroke(1.dp, HomePalette.border)
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+                    if (profile == null) {
                         Text(
-                            text = profile.role.ifBlank { "Role unknown" },
-                            color = HomePalette.teal,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            letterSpacing = 1.sp
+                            text = message ?: "Employee profile unavailable",
+                            color = HomePalette.muted,
+                            fontSize = 13.sp
+                        )
+                    } else {
+                        Text(
+                            text = if (profile.fullName.isBlank()) "Unnamed Employee" else profile.fullName,
+                            color = HomePalette.white,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(HomePalette.teal.copy(alpha = 0.18f))
+                                    .border(1.dp, HomePalette.teal.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = profile.role.ifBlank { "Role unknown" },
+                                    color = HomePalette.teal,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    letterSpacing = 1.sp
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = if (profile.email.isBlank()) "Email not available" else profile.email,
+                            color = HomePalette.muted,
+                            fontSize = 12.sp
                         )
                     }
                 }
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    text = if (profile.email.isBlank()) "Email not available" else profile.email,
-                    color = HomePalette.muted,
-                    fontSize = 12.sp
-                )
             }
         }
     }
@@ -377,43 +397,53 @@ private fun CalendarActivityCard(
 ) {
     val shape = RoundedCornerShape(16.dp)
     val monthLabel = month.month.getDisplayName(TextStyle.FULL, Locale.getDefault())
-    Box(
-        modifier = modifier
-            .shadow(6.dp, shape)
-            .clip(shape)
-            .background(HomePalette.surface)
-            .border(1.dp, HomePalette.border, shape)
-            .padding(16.dp)
-    ) {
-        Column {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
+    Box(modifier = modifier) {
+        Box(
+            modifier = Modifier.shadow(
+                elevation = 16.dp,
+                shape = shape,
+                ambientColor = HomePalette.teal.copy(alpha = 0.08f),
+                spotColor = HomePalette.teal.copy(alpha = 0.12f)
+            )
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = shape,
+                colors = CardDefaults.cardColors(containerColor = HomePalette.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 12.dp, pressedElevation = 4.dp),
+                border = BorderStroke(1.dp, HomePalette.border)
             ) {
-                Text(
-                    text = "$monthLabel ${month.year}",
-                    color = HomePalette.white,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(Modifier.weight(1f))
-                Text(
-                    text = "Activity",
-                    color = HomePalette.muted,
-                    fontSize = 11.sp,
-                    letterSpacing = 1.4.sp
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            if (loading) {
-                CalendarShimmer()
-            } else {
-                CalendarGrid(
-                    month = month,
-                    today = today,
-                    activeDates = activeDates,
-                    onDayClick = onDayClick
-                )
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "$monthLabel ${month.year}",
+                            color = HomePalette.teal,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            text = "Activity",
+                            color = HomePalette.muted,
+                            fontSize = 11.sp,
+                            letterSpacing = 1.4.sp
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    if (loading) {
+                        CalendarShimmer()
+                    } else {
+                        CalendarGrid(
+                            month = month,
+                            today = today,
+                            activeDates = activeDates,
+                            onDayClick = onDayClick
+                        )
+                    }
+                }
             }
         }
     }
@@ -542,17 +572,29 @@ private fun StatsRow(
 @Composable
 private fun StatChip(value: String, label: String, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(16.dp)
-    Column(
-        modifier = modifier
-            .shadow(4.dp, shape)
-            .clip(shape)
-            .background(HomePalette.surfaceAlt)
-            .border(1.dp, HomePalette.border, shape)
-            .padding(horizontal = 16.dp, vertical = 14.dp)
-    ) {
-        Text(value, color = HomePalette.white, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(4.dp))
-        Text(label, color = HomePalette.muted, fontSize = 11.sp)
+    Box(modifier = modifier) {
+        Box(
+            modifier = Modifier.shadow(
+                elevation = 16.dp,
+                shape = shape,
+                ambientColor = HomePalette.teal.copy(alpha = 0.08f),
+                spotColor = HomePalette.teal.copy(alpha = 0.12f)
+            )
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = shape,
+                colors = CardDefaults.cardColors(containerColor = HomePalette.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 12.dp, pressedElevation = 4.dp),
+                border = BorderStroke(1.dp, HomePalette.border)
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                    Text(value, color = HomePalette.white, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(label, color = HomePalette.muted, fontSize = 11.sp)
+                }
+            }
+        }
     }
 }
 
@@ -607,47 +649,153 @@ private fun DayStatsDialog(
     onDismiss: () -> Unit
 ) {
     if (selectedDay == null) return
-    val configuration = LocalConfiguration.current
-    val dialogWidth = configuration.screenWidthDp.dp * 0.8f
-    val formatter = remember { DateTimeFormatter.ofPattern("MMM d, yyyy") }
+    val formatter = remember { DateTimeFormatter.ofPattern("EEEE, MMM d") }
+    val formattedSelectedDate = remember(selectedDay) { selectedDay.format(formatter) }
+    val boxCount = stats?.boxes ?: 0
+    val itemCount = stats?.items ?: 0
+    val hasActivity = !loading && stats != null && (stats.boxes > 0 || stats.items > 0)
     Dialog(onDismissRequest = onDismiss) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Surface(
-                modifier = Modifier
-                    .width(dialogWidth)
-                    .clip(RoundedCornerShape(16.dp))
-                    .border(1.dp, HomePalette.border, RoundedCornerShape(16.dp)),
-                color = HomePalette.surfaceAlt,
-                shadowElevation = 8.dp
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = selectedDay.format(formatter),
-                        color = HomePalette.white,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    when {
-                        loading -> Text("Loading activity…", color = HomePalette.muted, fontSize = 13.sp)
-                        stats == null || stats.boxes == 0 -> Text(
-                            "No scans recorded for this day",
-                            color = HomePalette.muted,
-                            fontSize = 13.sp
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .blur(20.dp)
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.radialGradient(
+                                listOf(
+                                    Color.Black.copy(alpha = 0.3f),
+                                    Color.Black.copy(alpha = 0.75f)
+                                )
+                            )
                         )
-                        else -> {
-                            Text(
-                                "Boxes scanned: ${stats.boxes}",
-                                color = HomePalette.white,
-                                fontSize = 13.sp
-                            )
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                "Total items: ${stats.items}",
-                                color = HomePalette.white,
-                                fontSize = 13.sp
-                            )
+                )
+            }
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth(0.88f)
+                    .wrapContentHeight(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = HomePalette.surfaceAlt),
+                elevation = CardDefaults.cardElevation(defaultElevation = 24.dp),
+                border = BorderStroke(1.dp, HomePalette.teal.copy(alpha = 0.3f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = formattedSelectedDate,
+                        color = HomePalette.teal,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.5.sp
+                    )
+                    HorizontalDivider(color = HomePalette.border)
+
+                    when {
+                        loading -> Text(
+                            text = "Loading activity…",
+                            color = HomePalette.muted,
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        hasActivity -> {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Boxes scanned", color = HomePalette.muted, fontSize = 14.sp)
+                                Text(
+                                    "$boxCount",
+                                    color = HomePalette.white,
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Items scanned", color = HomePalette.muted, fontSize = 14.sp)
+                                Text(
+                                    "$itemCount",
+                                    color = HomePalette.teal,
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            HorizontalDivider(color = HomePalette.border)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(HomePalette.teal.copy(alpha = 0.08f))
+                                    .border(
+                                        1.dp,
+                                        HomePalette.teal.copy(alpha = 0.25f),
+                                        RoundedCornerShape(10.dp)
+                                    )
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "$itemCount items across $boxCount boxes",
+                                    color = HomePalette.teal,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
+                        else -> {
+                            Spacer(Modifier.height(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(HomePalette.border),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("—", color = HomePalette.muted, fontSize = 20.sp)
+                            }
+                            Text(
+                                "No scans recorded",
+                                color = HomePalette.muted,
+                                fontSize = 15.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                "for this day",
+                                color = HomePalette.muted.copy(alpha = 0.6f),
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, HomePalette.border),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = HomePalette.muted
+                        )
+                    ) {
+                        Text("Close", fontSize = 14.sp)
                     }
                 }
             }
