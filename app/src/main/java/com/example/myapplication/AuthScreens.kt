@@ -367,7 +367,10 @@ fun SignInScreen(navController: NavController) {
                                 "Forgot password?",
                                 color = Color(0xFF2DD4BF),
                                 fontSize = 12.sp, // TWEAK: forgot password font size
-                                modifier = Modifier.clickable { navController.navigate("forgot_password") }
+                                modifier = Modifier.clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) { navController.navigate("forgot_password") }
                             )
                         }
 
@@ -478,7 +481,10 @@ fun SignInScreen(navController: NavController) {
                             fontSize = 12.sp, // TWEAK: skip link font size
                             modifier = Modifier
                                 .align(Alignment.CenterHorizontally)
-                                .clickable { navigateToHome() }
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) { navigateToHome() }
                         )
                     }
                 }
