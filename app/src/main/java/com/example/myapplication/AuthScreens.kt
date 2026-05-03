@@ -53,6 +53,19 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 
 // Updated Supabase v3 Imports
 import io.github.jan.supabase.auth.providers.builtin.Email
@@ -196,151 +209,287 @@ fun SignInScreen(navController: NavController) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(authBg)
+            .background(Color(0xFF080C10))
+            .statusBarsPadding()
     ) {
+        // TOP ZONE — hero branding (upper ~45% of screen)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
+                .fillMaxHeight(0.45f), // TWEAK: hero zone height fraction
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Spacer(Modifier.height(56.dp))
+            Spacer(Modifier.height(48.dp)) // TWEAK: hero section top offset
+
+            Image(
+                painter = painterResource(R.mipmap.ic_launcher),
+                contentDescription = "App logo",
+                modifier = Modifier.size(72.dp) // TWEAK: logo size
+            )
+
+            Spacer(Modifier.height(16.dp)) // TWEAK: gap between logo and app name
+
             Text(
-                "Employee Sign In",
-                color = authText,
-                fontSize = 24.sp,
+                buildAnnotatedString {
+                    withStyle(SpanStyle(color = Color(0xFFF0F6FC))) { append("Stack") }
+                    withStyle(SpanStyle(color = Color(0xFF2DD4BF))) { append("BoxAI") }
+                },
+                fontSize = 32.sp, // TWEAK: app name font size
                 fontWeight = FontWeight.Bold
             )
+
+            Spacer(Modifier.height(8.dp)) // TWEAK: gap between name and subtitle
+
             Text(
-                "Use your assigned account to continue.",
-                color = authMuted,
-                fontSize = 13.sp,
-                modifier = Modifier.padding(top = 4.dp)
+                "WAREHOUSE OPERATIONS",
+                color = Color(0xFF8B949E),
+                fontSize = 10.sp, // TWEAK: subtitle font size
+                letterSpacing = 2.5.sp // TWEAK: subtitle letter spacing
             )
-            Spacer(Modifier.height(28.dp))
-            OutlinedTextField(
-                value = email,
-                onValueChange = { email = it },
-                label = { Text("Email", color = authMuted) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                shape = RoundedCornerShape(12.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = authAccent,
-                    unfocusedBorderColor = authBorder,
-                    focusedTextColor = authText,
-                    unfocusedTextColor = authText,
-                    cursorColor = authAccent,
-                    focusedContainerColor = authSurface,
-                    unfocusedContainerColor = authSurface
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(Modifier.height(14.dp))
+        }
 
-            // UPDATED: Password Field with Toggle Logic
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                label = { Text("Password", color = authMuted) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                // Toggle the transformation based on state
-                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                // Add the trailing icon button
-                trailingIcon = {
-                    val image = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff
-                    val description = if (passwordVisible) "Hide password" else "Show password"
-
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                        Icon(imageVector = image, contentDescription = description, tint = authMuted)
-                    }
-                },
-                shape = RoundedCornerShape(12.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = authAccent,
-                    unfocusedBorderColor = authBorder,
-                    focusedTextColor = authText,
-                    unfocusedTextColor = authText,
-                    cursorColor = authAccent,
-                    focusedContainerColor = authSurface,
-                    unfocusedContainerColor = authSurface
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
-            ) {
-                Text(
-                    text = "Forgot password?",
-                    color = authAccent,
-                    fontSize = 12.sp,
-                    modifier = Modifier.clickable(
-                        remember { MutableInteractionSource() },
-                        null
-                    ) { navController.navigate("forgot_password") }
-                )
-            }
-            Spacer(Modifier.height(18.dp))
-            Button(
-                onClick = { submit() },
-                enabled = !isLoading,
+        // BOTTOM ZONE — form card anchored to bottom
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            // Shadow wrapper for white glow effect
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = authAccent,
-                    disabledContainerColor = authAccent.copy(alpha = 0.4f)
-                )
+                    .shadow(
+                        elevation = 24.dp, // TWEAK: sign in card shadow depth
+                        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                        spotColor = Color.White.copy(alpha = 0.08f),    // TWEAK: sign in card spot shadow
+                        ambientColor = Color.White.copy(alpha = 0.04f)  // TWEAK: sign in card ambient shadow
+                    )
             ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        color = Color.White,
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp), // TWEAK: card top corner radius
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF161B22)),
+                    border = BorderStroke(1.dp, Color(0xFF30363D)),
+                    elevation = CardDefaults.cardElevation(
+                        defaultElevation = 24.dp // TWEAK: material card lift
                     )
-                    Spacer(Modifier.width(8.dp))
-                    Text("Signing in…", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                } else {
-                    Text("Sign In", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                }
-            }
-            if (errorMessage != null) {
-                Spacer(Modifier.height(14.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(authSurface, RoundedCornerShape(12.dp))
-                        .border(1.dp, authError.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
+                    Column(
                         modifier = Modifier
-                            .size(8.dp)
-                            .background(authError, CircleShape)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = errorMessage.orEmpty(),
-                        color = authError,
-                        fontSize = 12.sp
-                    )
+                            .padding(horizontal = 24.dp, vertical = 0.dp) // TWEAK: card horizontal padding
+                            .padding(top = 16.dp, bottom = 32.dp)         // TWEAK: card inner padding
+                    ) {
+                        // Drag handle pill
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .width(36.dp)  // TWEAK: drag handle width
+                                .height(4.dp)  // TWEAK: drag handle height
+                                .background(Color(0xFF30363D), RoundedCornerShape(2.dp))
+                        )
+                        Spacer(Modifier.height(20.dp)) // TWEAK: drag handle bottom gap
+
+                        Text(
+                            "Employee Sign In",
+                            color = Color(0xFF2DD4BF),
+                            fontSize = 22.sp, // TWEAK: card title font size
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "Use your assigned credentials to continue",
+                            color = Color(0xFF8B949E),
+                            fontSize = 12.sp, // TWEAK: card subtitle font size
+                            modifier = Modifier.padding(top = 4.dp, bottom = 24.dp) // TWEAK: subtitle spacing
+                        )
+
+                        // Email field
+                        OutlinedTextField(
+                            value = email,
+                            onValueChange = { email = it },
+                            label = { Text("Email", color = authMuted) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor    = Color(0xFF2DD4BF),
+                                unfocusedBorderColor  = Color(0xFF30363D),
+                                focusedLabelColor     = Color(0xFF2DD4BF),
+                                unfocusedLabelColor   = Color(0xFF8B949E),
+                                focusedTextColor      = Color(0xFFF0F6FC),
+                                unfocusedTextColor    = Color(0xFFF0F6FC),
+                                cursorColor           = Color(0xFF2DD4BF),
+                                focusedContainerColor   = Color(0xFF1C2333),
+                                unfocusedContainerColor = Color(0xFF1C2333)
+                            )
+                        )
+
+                        Spacer(Modifier.height(14.dp)) // TWEAK: gap between email and password fields
+
+                        // Password field with toggle
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = { password = it },
+                            label = { Text("Password", color = authMuted) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                val image = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff
+                                val description = if (passwordVisible) "Hide password" else "Show password"
+                                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                    Icon(imageVector = image, contentDescription = description, tint = authMuted)
+                                }
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor    = Color(0xFF2DD4BF),
+                                unfocusedBorderColor  = Color(0xFF30363D),
+                                focusedLabelColor     = Color(0xFF2DD4BF),
+                                unfocusedLabelColor   = Color(0xFF8B949E),
+                                focusedTextColor      = Color(0xFFF0F6FC),
+                                unfocusedTextColor    = Color(0xFFF0F6FC),
+                                cursorColor           = Color(0xFF2DD4BF),
+                                focusedContainerColor   = Color(0xFF1C2333),
+                                unfocusedContainerColor = Color(0xFF1C2333)
+                            )
+                        )
+
+                        Spacer(Modifier.height(8.dp)) // TWEAK: gap below password field
+
+                        // Forgot password — keep existing onClick
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            Text(
+                                "Forgot password?",
+                                color = Color(0xFF2DD4BF),
+                                fontSize = 12.sp, // TWEAK: forgot password font size
+                                modifier = Modifier.clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) { navController.navigate("forgot_password") }
+                            )
+                        }
+
+                        Spacer(Modifier.height(20.dp)) // TWEAK: gap above sign in button
+
+                        // SIGN IN BUTTON — bouncy + glossy teal
+                        val interactionSource = remember { MutableInteractionSource() }
+                        val isPressed by interactionSource.collectIsPressedAsState()
+                        val buttonScale by animateFloatAsState(
+                            targetValue = if (isPressed) 0.95f else 1f, // TWEAK: button press scale
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy, // TWEAK: button bounce damping
+                                stiffness    = Spring.StiffnessLow              // TWEAK: button bounce stiffness
+                            ),
+                            label = "buttonScale"
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp) // TWEAK: button height
+                                .scale(buttonScale)
+                                .shadow(
+                                    elevation    = if (isPressed) 2.dp else 12.dp, // TWEAK: button shadow depth
+                                    shape        = RoundedCornerShape(12.dp),
+                                    spotColor    = Color(0xFF2DD4BF).copy(alpha = 0.35f), // TWEAK: button glow color
+                                    ambientColor = Color(0xFF2DD4BF).copy(alpha = 0.15f)  // TWEAK: button ambient glow
+                                )
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color(0xFF3EECD4),  // TWEAK: button gradient top color (lighter teal)
+                                            Color(0xFF1BA898)   // TWEAK: button gradient bottom color (darker teal)
+                                        )
+                                    )
+                                )
+                                .clickable(
+                                    interactionSource = interactionSource,
+                                    indication = null,
+                                    enabled = !isLoading
+                                ) { submit() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            // Glossy sheen overlay — top half lighter
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .fillMaxHeight(0.5f) // TWEAK: gloss overlay height fraction
+                                    .align(Alignment.TopCenter)
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                Color.White.copy(alpha = 0.12f), // TWEAK: gloss top alpha
+                                                Color.White.copy(alpha = 0.0f)   // TWEAK: gloss bottom alpha
+                                            )
+                                        )
+                                    )
+                            )
+                            if (isLoading) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(
+                                        color = Color(0xFF080C10),
+                                        modifier = Modifier.size(18.dp), // TWEAK: loading spinner size
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        "Signing in…",
+                                        color = Color(0xFF080C10),
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    "Sign In",
+                                    color = Color(0xFF080C10), // dark text on teal
+                                    fontSize = 15.sp, // TWEAK: button text size
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        // Error message — keep existing errorMessage logic
+                        if (errorMessage != null) {
+                            Spacer(Modifier.height(14.dp)) // TWEAK: gap above error message
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFF161B22), RoundedCornerShape(12.dp))
+                                    .border(1.dp, Color(0xFFE53E3E).copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(Modifier.size(8.dp).background(Color(0xFFE53E3E), CircleShape))
+                                Spacer(Modifier.width(8.dp))
+                                Text(errorMessage.orEmpty(), color = Color(0xFFE53E3E), fontSize = 12.sp)
+                            }
+                        }
+
+                        Spacer(Modifier.height(16.dp)) // TWEAK: gap above skip link
+
+                        // Skip link — keep existing navigateToHome() onClick
+                        Text(
+                            "Skip for now",
+                            color = Color(0xFF8B949E),
+                            fontSize = 12.sp, // TWEAK: skip link font size
+                            modifier = Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) { navigateToHome() }
+                        )
+                    }
                 }
             }
         }
-
-        Text(
-            text = "Skip for now",
-            color = authMuted,
-            fontSize = 12.sp,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(20.dp)
-                .clickable(remember { MutableInteractionSource() }, null) { navigateToHome() }
-        )
     }
 }
 
