@@ -209,12 +209,14 @@ fun InventoryScreen(navController: NavController) {
         modifier = Modifier
             .fillMaxSize()
             .background(HomePalette.bg)
+            .statusBarsPadding()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
         ) {
+            Spacer(Modifier.height(12.dp)) // TWEAK: top gap below status bar
             Spacer(Modifier.height(28.dp))
 
             EmployeeProfileCard(
@@ -272,7 +274,7 @@ fun InventoryScreen(navController: NavController) {
                 stats = totalStats
             )
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(8.dp)) // TWEAK: gap above quick actions section
 
             Row(
                 modifier = Modifier
@@ -290,7 +292,7 @@ fun InventoryScreen(navController: NavController) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = UiTuning.screenHorizontalPadding),
+                    .padding(horizontal = 16.dp, vertical = 0.dp), // TWEAK: quick actions inner padding
                 horizontalArrangement = Arrangement.spacedBy(UiTuning.rowSpacing, Alignment.CenterHorizontally)
             ) {
                 InteractiveBoxItem("Scan QR code", "LOOK UP BOX", navController, "scanner_screen", true)
@@ -328,17 +330,17 @@ private fun EmployeeProfileCard(
     Box(modifier = modifier) {
         Box(
             modifier = Modifier.shadow(
-                elevation = 16.dp,
-                shape = shape,
-                ambientColor = HomePalette.teal.copy(alpha = 0.08f),
-                spotColor = HomePalette.teal.copy(alpha = 0.12f)
+                elevation    = 14.dp,                              // TWEAK: profile card shadow depth
+                shape        = shape,
+                spotColor    = Color.White.copy(alpha = 0.06f),    // TWEAK: profile card spot shadow
+                ambientColor = Color.White.copy(alpha = 0.03f)     // TWEAK: profile card ambient shadow
             )
         ) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = shape,
                 colors = CardDefaults.cardColors(containerColor = HomePalette.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 12.dp, pressedElevation = 4.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 12.dp, pressedElevation = 4.dp), // TWEAK: profile material card lift
                 border = BorderStroke(1.dp, HomePalette.border)
             ) {
                 Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
@@ -400,17 +402,17 @@ private fun CalendarActivityCard(
     Box(modifier = modifier) {
         Box(
             modifier = Modifier.shadow(
-                elevation = 16.dp,
-                shape = shape,
-                ambientColor = HomePalette.teal.copy(alpha = 0.08f),
-                spotColor = HomePalette.teal.copy(alpha = 0.12f)
+                elevation    = 12.dp,                              // TWEAK: calendar card shadow depth
+                shape        = shape,
+                spotColor    = Color.White.copy(alpha = 0.05f),    // TWEAK: calendar card spot shadow
+                ambientColor = Color.White.copy(alpha = 0.02f)     // TWEAK: calendar card ambient shadow
             )
         ) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = shape,
                 colors = CardDefaults.cardColors(containerColor = HomePalette.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 12.dp, pressedElevation = 4.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 10.dp, pressedElevation = 4.dp), // TWEAK: calendar material card lift
                 border = BorderStroke(1.dp, HomePalette.border)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -575,17 +577,17 @@ private fun StatChip(value: String, label: String, modifier: Modifier = Modifier
     Box(modifier = modifier) {
         Box(
             modifier = Modifier.shadow(
-                elevation = 16.dp,
-                shape = shape,
-                ambientColor = HomePalette.teal.copy(alpha = 0.08f),
-                spotColor = HomePalette.teal.copy(alpha = 0.12f)
+                elevation    = 10.dp,                              // TWEAK: stats chip shadow depth
+                shape        = shape,
+                spotColor    = Color.White.copy(alpha = 0.04f),    // TWEAK: stats chip spot shadow
+                ambientColor = Color.White.copy(alpha = 0.02f)     // TWEAK: stats chip ambient shadow
             )
         ) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = shape,
                 colors = CardDefaults.cardColors(containerColor = HomePalette.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 12.dp, pressedElevation = 4.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp, pressedElevation = 4.dp), // TWEAK: stats material card lift
                 border = BorderStroke(1.dp, HomePalette.border)
             ) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
