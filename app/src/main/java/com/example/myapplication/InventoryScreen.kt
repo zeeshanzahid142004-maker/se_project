@@ -1,5 +1,4 @@
 package com.example.myapplication
-import android.os.Build
 import android.util.Log
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Animatable
@@ -17,8 +16,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
@@ -30,7 +27,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
@@ -45,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.myapplication.data.DayStats
 import com.example.myapplication.data.SupabaseRepository
 import com.example.myapplication.data.TotalStats
@@ -125,7 +122,6 @@ private object HomePalette {
 }
 
 private const val TAG_INV = "InventoryScreen"
-private const val QUICK_ACTIONS_MARKER = "//"
 
 @Composable
 fun InventoryScreen(navController: NavController) {
@@ -150,6 +146,7 @@ fun InventoryScreen(navController: NavController) {
     var selectedDay by remember { mutableStateOf<LocalDate?>(null) }
     var dayStatsLoading by remember { mutableStateOf(false) }
     var dayStats by remember { mutableStateOf<DayStats?>(null) }
+    var showFullCalendar by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         currentUserId = SupabaseModule.client.auth.currentUserOrNull()?.id
@@ -205,39 +202,50 @@ fun InventoryScreen(navController: NavController) {
         }
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(HomePalette.bg)
             .statusBarsPadding()
+            .navigationBarsPadding()
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
+                .fillMaxSize()
+                .padding(horizontal = 16.dp), // TWEAK: screen padding
+            verticalArrangement = Arrangement.spacedBy(10.dp) // TWEAK: section gaps
         ) {
-            Spacer(Modifier.height(12.dp)) // TWEAK: top gap below status bar
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(12.dp)) // TWEAK: top gap
 
-            EmployeeProfileCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                loading = profileLoading,
-                profile = profile,
-                message = profileMessage
+            Text(
+                "Welcome back,",
+                color = HomePalette.muted,
+                fontSize = 12.sp // TWEAK: welcome size
             )
 
-            Spacer(Modifier.height(16.dp))
+            EmployeeProfileCard(
+                modifier = Modifier.fillMaxWidth(),
+                loading = profileLoading,
+                profile = profile,
+                message = profileMessage,
+                totalStats = totalStats,
+                statsLoading = statsLoading
+            )
+
+            Text(
+                "Activity Calendar",
+                color = HomePalette.white,
+                fontSize = 13.sp, // TWEAK
+                fontWeight = FontWeight.SemiBold
+            )
 
             CalendarActivityCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
+                modifier = Modifier.fillMaxWidth(),
                 month = currentMonth,
                 today = today,
                 loading = activityLoading,
                 activeDates = activeDateSet,
+                onViewMonth = { showFullCalendar = true },
                 onDayClick = { date ->
                     selectedDay = date
                     val userId = currentUserId
@@ -266,40 +274,41 @@ fun InventoryScreen(navController: NavController) {
                 }
             )
 
-            Spacer(Modifier.height(16.dp))
-
-            StatsRow(
-                modifier = Modifier.padding(horizontal = 16.dp),
-                loading = statsLoading,
-                stats = totalStats
-            )
-
-            Spacer(Modifier.height(8.dp)) // TWEAK: gap above quick actions section
-
+            // Quick actions label
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(QUICK_ACTIONS_MARKER, color = HomePalette.teal, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                Spacer(Modifier.width(6.dp))
-                Text("QUICK ACTIONS", color = HomePalette.muted, fontSize = 10.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
+                Box(
+                    modifier = Modifier
+                        .width(3.dp) // TWEAK: accent bar width
+                        .height(16.dp) // TWEAK: accent bar height
+                        .background(HomePalette.teal)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "QUICK ACTIONS",
+                    color = HomePalette.white,
+                    fontSize = 12.sp, // TWEAK
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.5.sp // TWEAK
+                )
             }
 
-            Spacer(Modifier.height(16.dp))
-
+            // Action buttons
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 0.dp), // TWEAK: quick actions inner padding
-                horizontalArrangement = Arrangement.spacedBy(UiTuning.rowSpacing, Alignment.CenterHorizontally)
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp) // TWEAK
             ) {
-                InteractiveBoxItem("Scan QR code", "LOOK UP BOX", navController, "scanner_screen", true)
-                InteractiveBoxItem("New box", "START SCANNING", navController, "new_box_screen", false)
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    InteractiveBoxItem("Scan QR code", "LOOK UP BOX", navController, "scanner_screen", true)
+                }
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    InteractiveBoxItem("New box", "START SCANNING", navController, "new_box_screen", false)
+                }
             }
 
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(4.dp)) // TWEAK: bottom breath
         }
     }
 
@@ -313,6 +322,17 @@ fun InventoryScreen(navController: NavController) {
             dayStatsLoading = false
         }
     )
+
+    if (showFullCalendar) {
+        FullCalendarSheet(
+            activityDates = activeDateSet,
+            onDaySelected = { day ->
+                selectedDay = day
+                showFullCalendar = false
+            },
+            onDismiss = { showFullCalendar = false }
+        )
+    }
 }
 
 @Composable
@@ -320,7 +340,9 @@ private fun EmployeeProfileCard(
     modifier: Modifier,
     loading: Boolean,
     profile: WarehouseUser?,
-    message: String?
+    message: String?,
+    totalStats: TotalStats?,
+    statsLoading: Boolean
 ) {
     val shape = RoundedCornerShape(16.dp)
     if (loading) {
@@ -330,57 +352,125 @@ private fun EmployeeProfileCard(
     Box(modifier = modifier) {
         Box(
             modifier = Modifier.shadow(
-                elevation    = 14.dp,                              // TWEAK: profile card shadow depth
+                elevation    = 20.dp,                             // TWEAK: profile card shadow depth
                 shape        = shape,
-                spotColor    = Color.White.copy(alpha = 0.06f),    // TWEAK: profile card spot shadow
-                ambientColor = Color.White.copy(alpha = 0.03f)     // TWEAK: profile card ambient shadow
+                spotColor    = Color.White.copy(alpha = 0.10f),   // TWEAK: profile card spot shadow
+                ambientColor = Color.White.copy(alpha = 0.05f)    // TWEAK: profile card ambient shadow
             )
         ) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = shape,
                 colors = CardDefaults.cardColors(containerColor = HomePalette.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 12.dp, pressedElevation = 4.dp), // TWEAK: profile material card lift
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 border = BorderStroke(1.dp, HomePalette.border)
             ) {
-                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
-                    if (profile == null) {
-                        Text(
-                            text = message ?: "Employee profile unavailable",
-                            color = HomePalette.muted,
-                            fontSize = 13.sp
-                        )
-                    } else {
-                        Text(
-                            text = if (profile.fullName.isBlank()) "Unnamed Employee" else profile.fullName,
-                            color = HomePalette.white,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                if (profile == null) {
+                    Text(
+                        text = message ?: "Employee profile unavailable",
+                        color = HomePalette.muted,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(16.dp) // TWEAK: card padding
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp), // TWEAK: card padding
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // LEFT: name, role pill, email
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (profile.fullName.isBlank()) "Unnamed Employee" else profile.fullName,
+                                color = HomePalette.white,
+                                fontSize = 17.sp, // TWEAK
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(Modifier.height(4.dp))
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(20.dp))
-                                    .background(HomePalette.teal.copy(alpha = 0.18f))
-                                    .border(1.dp, HomePalette.teal.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                                    .background(HomePalette.teal.copy(alpha = 0.12f))
+                                    .border(1.dp, HomePalette.teal.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
+                                    .padding(horizontal = 8.dp, vertical = 3.dp)
                             ) {
                                 Text(
                                     text = profile.role.ifBlank { "Role unknown" },
                                     color = HomePalette.teal,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    letterSpacing = 1.sp
+                                    fontSize = 10.sp, // TWEAK
+                                    fontWeight = FontWeight.SemiBold
                                 )
                             }
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = if (profile.email.isBlank()) "Email not available" else profile.email,
+                                color = HomePalette.muted,
+                                fontSize = 11.sp // TWEAK
+                            )
                         }
-                        Spacer(Modifier.height(10.dp))
-                        Text(
-                            text = if (profile.email.isBlank()) "Email not available" else profile.email,
-                            color = HomePalette.muted,
-                            fontSize = 12.sp
-                        )
+
+                        Spacer(Modifier.width(12.dp))
+
+                        // RIGHT: two stat columns separated by vertical divider
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // Boxes stat
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                if (statsLoading) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(40.dp)
+                                            .height(22.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(rememberShimmerBrush())
+                                    )
+                                } else {
+                                    Text(
+                                        text = (totalStats?.totalBoxes ?: 0).toString(),
+                                        color = HomePalette.teal,
+                                        fontSize = 22.sp, // TWEAK
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                Text("Boxes", color = HomePalette.muted, fontSize = 10.sp) // TWEAK
+                            }
+
+                            Spacer(Modifier.width(12.dp))
+
+                            // Vertical divider
+                            Box(
+                                modifier = Modifier
+                                    .width(1.dp)
+                                    .height(36.dp) // TWEAK
+                                    .background(HomePalette.border)
+                            )
+
+                            Spacer(Modifier.width(12.dp))
+
+                            // Items stat
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                if (statsLoading) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(40.dp)
+                                            .height(22.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(rememberShimmerBrush())
+                                    )
+                                } else {
+                                    Text(
+                                        text = (totalStats?.totalItems ?: 0).toString(),
+                                        color = HomePalette.white,
+                                        fontSize = 22.sp, // TWEAK
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                Text("Items", color = HomePalette.muted, fontSize = 10.sp) // TWEAK
+                            }
+                        }
                     }
                 }
             }
@@ -395,6 +485,7 @@ private fun CalendarActivityCard(
     today: LocalDate,
     loading: Boolean,
     activeDates: Set<LocalDate>,
+    onViewMonth: () -> Unit,
     onDayClick: (LocalDate) -> Unit
 ) {
     val shape = RoundedCornerShape(16.dp)
@@ -402,20 +493,20 @@ private fun CalendarActivityCard(
     Box(modifier = modifier) {
         Box(
             modifier = Modifier.shadow(
-                elevation    = 12.dp,                              // TWEAK: calendar card shadow depth
+                elevation    = 16.dp,                             // TWEAK: calendar card shadow depth
                 shape        = shape,
-                spotColor    = Color.White.copy(alpha = 0.05f),    // TWEAK: calendar card spot shadow
-                ambientColor = Color.White.copy(alpha = 0.02f)     // TWEAK: calendar card ambient shadow
+                spotColor    = Color.White.copy(alpha = 0.08f),   // TWEAK: calendar card spot shadow
+                ambientColor = Color.White.copy(alpha = 0.04f)    // TWEAK: calendar card ambient shadow
             )
         ) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = shape,
                 colors = CardDefaults.cardColors(containerColor = HomePalette.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 10.dp, pressedElevation = 4.dp), // TWEAK: calendar material card lift
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 border = BorderStroke(1.dp, HomePalette.border)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) { // TWEAK
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
@@ -423,23 +514,38 @@ private fun CalendarActivityCard(
                         Text(
                             text = "$monthLabel ${month.year}",
                             color = HomePalette.teal,
-                            fontSize = 20.sp,
+                            fontSize = 15.sp, // TWEAK
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(Modifier.weight(1f))
-                        Text(
-                            text = "Activity",
-                            color = HomePalette.muted,
-                            fontSize = 11.sp,
-                            letterSpacing = 1.4.sp
-                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(HomePalette.teal.copy(alpha = 0.10f)) // TWEAK: chip bg alpha
+                                .border(
+                                    1.dp,
+                                    HomePalette.teal.copy(alpha = 0.30f), // TWEAK: chip border alpha
+                                    RoundedCornerShape(20.dp)
+                                )
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) { onViewMonth() }
+                                .padding(horizontal = 10.dp, vertical = 4.dp) // TWEAK: chip h padding, chip v padding
+                        ) {
+                            Text(
+                                text = "View Month",
+                                color = HomePalette.teal,
+                                fontSize = 10.sp, // TWEAK: chip font size
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(10.dp))
                     if (loading) {
                         CalendarShimmer()
                     } else {
-                        CalendarGrid(
-                            month = month,
+                        WeekStrip(
                             today = today,
                             activeDates = activeDates,
                             onDayClick = onDayClick
@@ -452,75 +558,66 @@ private fun CalendarActivityCard(
 }
 
 @Composable
-private fun CalendarGrid(
-    month: YearMonth,
+private fun WeekStrip(
     today: LocalDate,
     activeDates: Set<LocalDate>,
     onDayClick: (LocalDate) -> Unit
 ) {
-    val weekDays = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
-    val firstOfMonth = month.atDay(1)
-    val startOffset = firstOfMonth.dayOfWeek.value % 7
-    val totalDays = month.lengthOfMonth()
+    val dayHeaders = listOf("S", "M", "T", "W", "T", "F", "S")
+    // currentWeekDays = today's week Sun–Sat (DayOfWeek: Mon=1 … Sun=7)
+    val weekStart = today.minusDays((today.dayOfWeek.value % 7).toLong())
+    val currentWeekDays = (0..6).map { weekStart.plusDays(it.toLong()) }
 
-    val days = buildList<LocalDate?> {
-        repeat(startOffset) { add(null) }
-        for (day in 1..totalDays) {
-            add(month.atDay(day))
-        }
-        while (size % 7 != 0) add(null)
-    }
-
+    // Day-of-week headers
     Row(modifier = Modifier.fillMaxWidth()) {
-        weekDays.forEach { label ->
+        dayHeaders.forEach { label ->
             Text(
                 text = label,
                 color = HomePalette.muted,
-                fontSize = 11.sp,
+                fontSize = 11.sp, // TWEAK
                 textAlign = TextAlign.Center,
                 modifier = Modifier.weight(1f)
             )
         }
     }
 
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(6.dp))
 
-    days.chunked(7).forEach { week ->
-        Row(modifier = Modifier.fillMaxWidth()) {
-            week.forEach { date ->
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(40.dp)
-                        .clickable(enabled = date != null) { date?.let(onDayClick) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (date != null) {
-                        val isToday = date == today
-                        val isActive = activeDates.contains(date)
-                        val color = when {
-                            isToday -> HomePalette.white
-                            isActive -> HomePalette.teal
-                            else -> HomePalette.muted
-                        }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = date.dayOfMonth.toString(),
-                                color = color,
-                                fontSize = 13.sp,
-                                fontWeight = if (isToday) FontWeight.SemiBold else FontWeight.Normal
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            if (isActive) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .background(HomePalette.teal, CircleShape)
-                                )
-                            } else {
-                                Spacer(Modifier.size(6.dp))
-                            }
-                        }
+    // Day cells
+    Row(modifier = Modifier.fillMaxWidth()) {
+        currentWeekDays.forEach { date ->
+            val isToday  = date == today
+            val isActive = activeDates.contains(date)
+            val textColor = when {
+                isToday  -> HomePalette.white
+                isActive -> HomePalette.teal
+                else     -> HomePalette.muted
+            }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onDayClick(date) },
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = date.dayOfMonth.toString(),
+                        color = textColor,
+                        fontSize = 14.sp, // TWEAK
+                        fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    if (isActive) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp) // TWEAK
+                                .background(HomePalette.teal, CircleShape)
+                        )
+                    } else {
+                        Spacer(Modifier.size(6.dp))
                     }
                 }
             }
@@ -531,85 +628,20 @@ private fun CalendarGrid(
 @Composable
 private fun CalendarShimmer() {
     val brush = rememberShimmerBrush()
-    Column {
-        repeat(6) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                repeat(7) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(28.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(brush)
-                    )
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-        }
-    }
-}
-
-@Composable
-private fun StatsRow(
-    modifier: Modifier,
-    loading: Boolean,
-    stats: TotalStats?
-) {
     Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        if (loading) {
-            StatChipShimmer(modifier = Modifier.weight(1f))
-            StatChipShimmer(modifier = Modifier.weight(1f))
-        } else {
-            val totalBoxes = stats?.totalBoxes ?: 0
-            val totalItems = stats?.totalItems ?: 0
-            StatChip(value = totalBoxes.toString(), label = "Total boxes scanned", modifier = Modifier.weight(1f))
-            StatChip(value = totalItems.toString(), label = "Total items scanned", modifier = Modifier.weight(1f))
-        }
-    }
-}
-
-@Composable
-private fun StatChip(value: String, label: String, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(16.dp)
-    Box(modifier = modifier) {
-        Box(
-            modifier = Modifier.shadow(
-                elevation    = 10.dp,                              // TWEAK: stats chip shadow depth
-                shape        = shape,
-                spotColor    = Color.White.copy(alpha = 0.04f),    // TWEAK: stats chip spot shadow
-                ambientColor = Color.White.copy(alpha = 0.02f)     // TWEAK: stats chip ambient shadow
+        repeat(7) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(36.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(brush)
             )
-        ) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = shape,
-                colors = CardDefaults.cardColors(containerColor = HomePalette.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp, pressedElevation = 4.dp), // TWEAK: stats material card lift
-                border = BorderStroke(1.dp, HomePalette.border)
-            ) {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                    Text(value, color = HomePalette.white, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(4.dp))
-                    Text(label, color = HomePalette.muted, fontSize = 11.sp)
-                }
-            }
         }
     }
-}
-
-@Composable
-private fun StatChipShimmer(modifier: Modifier = Modifier) {
-    val brush = rememberShimmerBrush()
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(brush)
-            .border(1.dp, HomePalette.border, RoundedCornerShape(16.dp))
-            .height(64.dp)
-    )
 }
 
 @Composable
@@ -656,49 +688,54 @@ private fun DayStatsDialog(
     val boxCount = stats?.boxes ?: 0
     val itemCount = stats?.items ?: 0
     val hasActivity = !loading && stats != null && (stats.boxes > 0 || stats.items > 0)
-    Dialog(onDismissRequest = onDismiss) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.6f))
-                        .blur(20.dp)
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.radialGradient(
-                                listOf(
-                                    Color.Black.copy(alpha = 0.3f),
-                                    Color.Black.copy(alpha = 0.75f)
-                                )
-                            )
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            // Scrim + radial depth layer — clickable to dismiss
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.88f)) // TWEAK: scrim
+                    .background(
+                        Brush.radialGradient(
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f)),
+                            radius = 800f // TWEAK: radial depth
                         )
-                )
-            }
+                    )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onDismiss() }
+            )
             Card(
                 modifier = Modifier
-                    .fillMaxWidth(0.88f)
-                    .wrapContentHeight(),
-                shape = RoundedCornerShape(20.dp),
+                    .fillMaxWidth(0.88f) // TWEAK: popup width
+                    .wrapContentHeight()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { /* consume click — prevent dismiss */ },
+                shape = RoundedCornerShape(20.dp), // TWEAK
                 colors = CardDefaults.cardColors(containerColor = HomePalette.surfaceAlt),
-                elevation = CardDefaults.cardElevation(defaultElevation = 24.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 32.dp), // TWEAK
                 border = BorderStroke(1.dp, HomePalette.teal.copy(alpha = 0.3f))
             ) {
                 Column(
-                    modifier = Modifier.padding(28.dp),
+                    modifier = Modifier.padding(28.dp), // TWEAK
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp) // TWEAK
                 ) {
                     Text(
                         text = formattedSelectedDate,
                         color = HomePalette.teal,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.5.sp
+                        letterSpacing = 1.5.sp // TWEAK
                     )
                     HorizontalDivider(color = HomePalette.border)
 
@@ -719,8 +756,9 @@ private fun DayStatsDialog(
                                 Text(
                                     "$boxCount",
                                     color = HomePalette.white,
-                                    fontSize = 24.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontSize = 26.sp, // TWEAK
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
                                 )
                             }
                             Row(
@@ -732,7 +770,7 @@ private fun DayStatsDialog(
                                 Text(
                                     "$itemCount",
                                     color = HomePalette.teal,
-                                    fontSize = 24.sp,
+                                    fontSize = 26.sp, // TWEAK
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.Monospace
                                 )
@@ -754,7 +792,7 @@ private fun DayStatsDialog(
                                 Text(
                                     "$itemCount items across $boxCount boxes",
                                     color = HomePalette.teal,
-                                    fontSize = 13.sp,
+                                    fontSize = 13.sp, // TWEAK
                                     fontWeight = FontWeight.Medium
                                 )
                             }
@@ -763,7 +801,7 @@ private fun DayStatsDialog(
                             Spacer(Modifier.height(8.dp))
                             Box(
                                 modifier = Modifier
-                                    .size(56.dp)
+                                    .size(56.dp) // TWEAK
                                     .clip(CircleShape)
                                     .background(HomePalette.border),
                                 contentAlignment = Alignment.Center
@@ -773,7 +811,7 @@ private fun DayStatsDialog(
                             Text(
                                 "No scans recorded",
                                 color = HomePalette.muted,
-                                fontSize = 15.sp,
+                                fontSize = 15.sp, // TWEAK
                                 textAlign = TextAlign.Center
                             )
                             Text(
@@ -790,7 +828,7 @@ private fun DayStatsDialog(
                         onClick = onDismiss,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(44.dp),
+                            .height(44.dp), // TWEAK
                         shape = RoundedCornerShape(10.dp),
                         border = BorderStroke(1.dp, HomePalette.border),
                         colors = ButtonDefaults.outlinedButtonColors(

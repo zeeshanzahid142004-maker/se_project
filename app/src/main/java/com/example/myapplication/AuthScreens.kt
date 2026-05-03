@@ -212,13 +212,12 @@ fun SignInScreen(navController: NavController) {
             .background(Color(0xFF080C10))
             .statusBarsPadding()
     ) {
-        // TOP ZONE — hero branding (upper ~45% of screen)
+        // TOP HERO — branding anchored to top
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.45f), // TWEAK: hero zone height fraction
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+                .align(Alignment.TopCenter)
+                .padding(top = 64.dp), // TWEAK: hero top
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(Modifier.height(48.dp)) // TWEAK: hero section top offset
 
@@ -241,73 +240,59 @@ fun SignInScreen(navController: NavController) {
             Text(
                 buildAnnotatedString {
                     withStyle(SpanStyle(color = Color(0xFFF0F6FC))) { append("Stack") }
-                    withStyle(SpanStyle(color = Color(0xFF2DD4BF))) { append("BoxAI") }
+                    withStyle(SpanStyle(color = Color(0xFF2DD4BF), fontWeight = FontWeight.Bold)) { append("BoxAI") }
                 },
-                fontSize = 32.sp, // TWEAK: app name font size
+                fontSize = 32.sp, // TWEAK: name size
                 fontWeight = FontWeight.Bold
             )
-
-            Spacer(Modifier.height(8.dp)) // TWEAK: gap between name and subtitle
-
+            Spacer(Modifier.height(4.dp))
             Text(
                 "WAREHOUSE OPERATIONS",
                 color = Color(0xFF8B949E),
-                fontSize = 10.sp, // TWEAK: subtitle font size
-                letterSpacing = 2.5.sp // TWEAK: subtitle letter spacing
+                fontSize = 10.sp, // TWEAK: subtitle size
+                letterSpacing = 2.5.sp // TWEAK: spacing
             )
         }
 
-        // BOTTOM ZONE — form card anchored to bottom
+        // CENTER CARD — form card centered on screen
         Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.BottomCenter
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp) // TWEAK: card margin
         ) {
-            // Shadow wrapper for white glow effect
+            // Shadow wrapper
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .shadow(
-                        elevation = 24.dp, // TWEAK: sign in card shadow depth
-                        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-                        spotColor = Color.White.copy(alpha = 0.08f),    // TWEAK: sign in card spot shadow
-                        ambientColor = Color.White.copy(alpha = 0.04f)  // TWEAK: sign in card ambient shadow
+                        elevation = 48.dp, // TWEAK: shadow depth
+                        shape = RoundedCornerShape(24.dp),
+                        spotColor = Color.White.copy(alpha = 0.18f), // TWEAK: spot shadow
+                        ambientColor = Color.White.copy(alpha = 0.10f) // TWEAK: ambient shadow
                     )
             ) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp), // TWEAK: card top corner radius
+                    shape = RoundedCornerShape(24.dp), // TWEAK: radius
                     colors = CardDefaults.cardColors(containerColor = Color(0xFF161B22)),
                     border = BorderStroke(1.dp, Color(0xFF30363D)),
-                    elevation = CardDefaults.cardElevation(
-                        defaultElevation = 24.dp // TWEAK: material card lift
-                    )
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp) // shadow handled above
                 ) {
                     Column(
-                        modifier = Modifier
-                            .padding(horizontal = 24.dp, vertical = 0.dp) // TWEAK: card horizontal padding
-                            .padding(top = 16.dp, bottom = 32.dp)         // TWEAK: card inner padding
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp) // TWEAK: card padding
                     ) {
-                        // Drag handle pill
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.CenterHorizontally)
-                                .width(36.dp)  // TWEAK: drag handle width
-                                .height(4.dp)  // TWEAK: drag handle height
-                                .background(Color(0xFF30363D), RoundedCornerShape(2.dp))
-                        )
-                        Spacer(Modifier.height(20.dp)) // TWEAK: drag handle bottom gap
-
                         Text(
                             "Employee Sign In",
                             color = Color(0xFF2DD4BF),
-                            fontSize = 22.sp, // TWEAK: card title font size
+                            fontSize = 22.sp, // TWEAK: title size
                             fontWeight = FontWeight.Bold
                         )
                         Text(
                             "Use your assigned credentials to continue",
                             color = Color(0xFF8B949E),
-                            fontSize = 12.sp, // TWEAK: card subtitle font size
-                            modifier = Modifier.padding(top = 4.dp, bottom = 24.dp) // TWEAK: subtitle spacing
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 24.dp) // TWEAK: subtitle gap
                         )
 
                         // Email field
@@ -320,19 +305,19 @@ fun SignInScreen(navController: NavController) {
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth(),
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor    = Color(0xFF2DD4BF),
-                                unfocusedBorderColor  = Color(0xFF30363D),
-                                focusedLabelColor     = Color(0xFF2DD4BF),
-                                unfocusedLabelColor   = Color(0xFF8B949E),
-                                focusedTextColor      = Color(0xFFF0F6FC),
-                                unfocusedTextColor    = Color(0xFFF0F6FC),
-                                cursorColor           = Color(0xFF2DD4BF),
+                                focusedBorderColor      = Color(0xFF2DD4BF),
+                                unfocusedBorderColor    = Color(0xFF30363D),
+                                focusedLabelColor       = Color(0xFF2DD4BF),
+                                unfocusedLabelColor     = Color(0xFF8B949E),
+                                focusedTextColor        = Color(0xFFF0F6FC),
+                                unfocusedTextColor      = Color(0xFFF0F6FC),
+                                cursorColor             = Color(0xFF2DD4BF),
                                 focusedContainerColor   = Color(0xFF1C2333),
                                 unfocusedContainerColor = Color(0xFF1C2333)
                             )
                         )
 
-                        Spacer(Modifier.height(14.dp)) // TWEAK: gap between email and password fields
+                        Spacer(Modifier.height(14.dp)) // TWEAK: field gap
 
                         // Password field with toggle
                         OutlinedTextField(
@@ -352,19 +337,19 @@ fun SignInScreen(navController: NavController) {
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth(),
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor    = Color(0xFF2DD4BF),
-                                unfocusedBorderColor  = Color(0xFF30363D),
-                                focusedLabelColor     = Color(0xFF2DD4BF),
-                                unfocusedLabelColor   = Color(0xFF8B949E),
-                                focusedTextColor      = Color(0xFFF0F6FC),
-                                unfocusedTextColor    = Color(0xFFF0F6FC),
-                                cursorColor           = Color(0xFF2DD4BF),
+                                focusedBorderColor      = Color(0xFF2DD4BF),
+                                unfocusedBorderColor    = Color(0xFF30363D),
+                                focusedLabelColor       = Color(0xFF2DD4BF),
+                                unfocusedLabelColor     = Color(0xFF8B949E),
+                                focusedTextColor        = Color(0xFFF0F6FC),
+                                unfocusedTextColor      = Color(0xFFF0F6FC),
+                                cursorColor             = Color(0xFF2DD4BF),
                                 focusedContainerColor   = Color(0xFF1C2333),
                                 unfocusedContainerColor = Color(0xFF1C2333)
                             )
                         )
 
-                        Spacer(Modifier.height(8.dp)) // TWEAK: gap below password field
+                        Spacer(Modifier.height(8.dp)) // TWEAK: below password gap
 
                         // Forgot password — keep existing onClick
                         Row(
@@ -374,7 +359,7 @@ fun SignInScreen(navController: NavController) {
                             Text(
                                 "Forgot password?",
                                 color = Color(0xFF2DD4BF),
-                                fontSize = 12.sp, // TWEAK: forgot password font size
+                                fontSize = 12.sp,
                                 modifier = Modifier.clickable(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null
@@ -382,16 +367,16 @@ fun SignInScreen(navController: NavController) {
                             )
                         }
 
-                        Spacer(Modifier.height(20.dp)) // TWEAK: gap above sign in button
+                        Spacer(Modifier.height(20.dp)) // TWEAK: above button gap
 
-                        // SIGN IN BUTTON — bouncy + glossy teal
+                        // BOUNCY GLOSSY BUTTON
                         val interactionSource = remember { MutableInteractionSource() }
                         val isPressed by interactionSource.collectIsPressedAsState()
                         val buttonScale by animateFloatAsState(
-                            targetValue = if (isPressed) 0.95f else 1f, // TWEAK: button press scale
+                            targetValue = if (isPressed) 0.95f else 1f, // TWEAK: press scale
                             animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioMediumBouncy, // TWEAK: button bounce damping
-                                stiffness    = Spring.StiffnessLow              // TWEAK: button bounce stiffness
+                                dampingRatio = Spring.DampingRatioMediumBouncy, // TWEAK: bounce
+                                stiffness    = Spring.StiffnessMediumLow        // TWEAK: bounce
                             ),
                             label = "buttonScale"
                         )
@@ -402,17 +387,17 @@ fun SignInScreen(navController: NavController) {
                                 .height(52.dp) // TWEAK: button height
                                 .scale(buttonScale)
                                 .shadow(
-                                    elevation    = if (isPressed) 2.dp else 12.dp, // TWEAK: button shadow depth
+                                    elevation    = if (isPressed) 2.dp else 20.dp, // TWEAK: button shadow
                                     shape        = RoundedCornerShape(12.dp),
-                                    spotColor    = Color(0xFF2DD4BF).copy(alpha = 0.35f), // TWEAK: button glow color
-                                    ambientColor = Color(0xFF2DD4BF).copy(alpha = 0.15f)  // TWEAK: button ambient glow
+                                    spotColor    = Color(0xFF136B5C).copy(alpha = 0.8f), // TWEAK: button glow
+                                    ambientColor = Color(0xFF136B5C).copy(alpha = 0.4f)  // TWEAK: button ambient
                                 )
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(
                                     brush = Brush.verticalGradient(
                                         colors = listOf(
-                                            Color(0xFF3EECD4),  // TWEAK: button gradient top color (lighter teal)
-                                            Color(0xFF1BA898)   // TWEAK: button gradient bottom color (darker teal)
+                                            Color(0xFF1FA88F), // TWEAK: button gradient
+                                            Color(0xFF136B5C)  // TWEAK: button gradient
                                         )
                                     )
                                 )
@@ -423,17 +408,17 @@ fun SignInScreen(navController: NavController) {
                                 ) { submit() },
                             contentAlignment = Alignment.Center
                         ) {
-                            // Glossy sheen overlay — top half lighter
+                            // Gloss overlay
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .fillMaxHeight(0.5f) // TWEAK: gloss overlay height fraction
+                                    .fillMaxHeight(0.5f)
                                     .align(Alignment.TopCenter)
                                     .background(
                                         Brush.verticalGradient(
                                             colors = listOf(
-                                                Color.White.copy(alpha = 0.12f), // TWEAK: gloss top alpha
-                                                Color.White.copy(alpha = 0.0f)   // TWEAK: gloss bottom alpha
+                                                Color.White.copy(alpha = 0.13f), // TWEAK: gloss alpha
+                                                Color.White.copy(alpha = 0.0f)
                                             )
                                         )
                                     )
@@ -441,14 +426,14 @@ fun SignInScreen(navController: NavController) {
                             if (isLoading) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     CircularProgressIndicator(
-                                        color = Color(0xFF080C10),
-                                        modifier = Modifier.size(18.dp), // TWEAK: loading spinner size
+                                        color = Color.White,
+                                        modifier = Modifier.size(18.dp),
                                         strokeWidth = 2.dp
                                     )
                                     Spacer(Modifier.width(8.dp))
                                     Text(
                                         "Signing in…",
-                                        color = Color(0xFF080C10),
+                                        color = Color.White,
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.SemiBold
                                     )
@@ -456,16 +441,16 @@ fun SignInScreen(navController: NavController) {
                             } else {
                                 Text(
                                     "Sign In",
-                                    color = Color(0xFF080C10), // dark text on teal
-                                    fontSize = 15.sp, // TWEAK: button text size
+                                    color = Color.White, // TWEAK: button text
+                                    fontSize = 15.sp, // TWEAK: button text
                                     fontWeight = FontWeight.Bold
                                 )
                             }
                         }
 
-                        // Error message — keep existing errorMessage logic
+                        // Error row — keep existing errorMessage logic
                         if (errorMessage != null) {
-                            Spacer(Modifier.height(14.dp)) // TWEAK: gap above error message
+                            Spacer(Modifier.height(14.dp))
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -480,13 +465,13 @@ fun SignInScreen(navController: NavController) {
                             }
                         }
 
-                        Spacer(Modifier.height(16.dp)) // TWEAK: gap above skip link
+                        Spacer(Modifier.height(16.dp)) // TWEAK: above skip gap
 
-                        // Skip link — keep existing navigateToHome() onClick
+                        // Skip for now — keep existing onClick
                         Text(
                             "Skip for now",
                             color = Color(0xFF8B949E),
-                            fontSize = 12.sp, // TWEAK: skip link font size
+                            fontSize = 12.sp,
                             modifier = Modifier
                                 .align(Alignment.CenterHorizontally)
                                 .clickable(
