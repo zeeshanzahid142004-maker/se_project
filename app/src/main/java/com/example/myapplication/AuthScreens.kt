@@ -222,11 +222,19 @@ fun SignInScreen(navController: NavController) {
         ) {
             Spacer(Modifier.height(48.dp)) // TWEAK: hero section top offset
 
-            Image(
-                painter = painterResource(R.mipmap.ic_launcher),
-                contentDescription = "App logo",
-                modifier = Modifier.size(72.dp) // TWEAK: logo size
-            )
+            Box(
+                modifier = Modifier
+                    .size(72.dp) // TWEAK: logo size
+                    .clip(RoundedCornerShape(16.dp)) // TWEAK: logo corner radius
+                    .background(Color(0xFF161B22)),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.ic_launcher_foreground),
+                    contentDescription = "App logo",
+                    modifier = Modifier.size(52.dp) // TWEAK: foreground icon size inside box
+                )
+            }
 
             Spacer(Modifier.height(16.dp)) // TWEAK: gap between logo and app name
 
