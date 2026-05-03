@@ -6,13 +6,15 @@ import android.util.Log
 import ai.onnxruntime.*
 import java.nio.FloatBuffer
 
-private val CUSTOM_LABELS = listOf(
-    "Jacket", "Jeans", "Jogger", "Polo", "Shirt",
-    "Short", "T-Shirt", "Trouser", "shoe"
-)
+private val CUSTOM_LABELS = listOf("Pants", "Shirt", "Shoe")
 val shape = longArrayOf(1, 3, INPUT_SIZE.toLong(), INPUT_SIZE.toLong())
 private const val INPUT_SIZE     = 640
-private const val CONF_THRESHOLD = 0.35f
+private val CLASS_THRESHOLDS = mapOf(
+    0 to 0.87f,  // Pants — strict, lots of false positives from furniture
+    1 to 0.87f,  // Shirt — strict, cupboards trigger this too
+    2 to 0.85f,  // Shoe  — lenient, model is less confident on shoes
+)
+private const val CONF_THRESHOLD_DEFAULT = 0.82f
 
 data class DetectionBox(
     val cx: Float, val cy: Float,
@@ -22,9 +24,17 @@ data class DetectionBox(
 )
 
 class YoloDetector(context: Context) {
-
     private val env         = OrtEnvironment.getEnvironment()
     private val session: OrtSession
+    private val lastDetectedMs = mutableMapOf<String, Long>()  // ← here
+    private val isRunning      = java.util.concurrent.atomic.AtomicBoolean(false)
+
+
+
+    companion object {
+        private const val DETECTION_COOLDOWN_MS = 4000L         // ← here
+    }
+
     private fun nms(boxes: List<DetectionBox>, iouThreshold: Float = 0.45f): List<DetectionBox> {
         val sorted     = boxes.sortedByDescending { it.confidence }.toMutableList()
         val kept       = mutableListOf<DetectionBox>()
@@ -59,72 +69,69 @@ class YoloDetector(context: Context) {
         Log.e("YOLO_DEBUG", "Outputs: ${session.outputNames}")
     }
 
+    // Make session access synchronized
+    private val sessionLock = Any()
+
     fun detectBoxes(bitmap: Bitmap): List<DetectionBox> {
-        val resized     = Bitmap.createScaledBitmap(bitmap, INPUT_SIZE, INPUT_SIZE, true)
-        val inputBuf    = bitmapToFloatBuffer(resized)
-        val shape       = longArrayOf(1, 3, INPUT_SIZE.toLong(), INPUT_SIZE.toLong())
-        val inputTensor = OnnxTensor.createTensor(env, inputBuf, shape)
+        if (!isRunning.compareAndSet(false, true)) {
+            return emptyList()
+        }
 
-        return try {
-            val inputName = session.inputNames.iterator().next()
-            val results   = session.run(mapOf(inputName to inputTensor))
+        return synchronized(sessionLock) {
+            val resized     = Bitmap.createScaledBitmap(bitmap, INPUT_SIZE, INPUT_SIZE, true)
+            val inputBuf    = bitmapToFloatBuffer(resized)
+            val shape       = longArrayOf(1, 3, INPUT_SIZE.toLong(), INPUT_SIZE.toLong())
+            val inputTensor = OnnxTensor.createTensor(env, inputBuf, shape)
 
-            // ONNX Runtime returns float[][] for shape [1, 13, 8400]
-            // Cast correctly — it's a 2D float array after removing batch dim
-            val rawValue = results[0].value
+            try {
+                val inputName  = session.inputNames.iterator().next()
+                val results    = session.run(mapOf(inputName to inputTensor))
+                val rawValue   = results[0].value
+                val output     = (rawValue as Array<*>)[0] as Array<*>
+                val rows       = Array(output.size) { i -> output[i] as FloatArray }
+                val numCols    = rows[0].size
 
-            // Print type to confirm structure
-            Log.e("YOLO_DEBUG", "Output type: ${rawValue?.javaClass?.name}")
-
-            // Shape [1, 13, 8400] comes back as Array<Array<FloatArray>>
-            val output = (rawValue as Array<*>)[0] as Array<*>  // shape [13, 8400]
-            val numRows = output.size                            // should be 13
-            val numCols = (output[0] as FloatArray).size        // should be 8400
-
-            Log.e("YOLO_DEBUG", "Parsed shape: rows=$numRows cols=$numCols")
-
-            val rows = Array(numRows) { i -> output[i] as FloatArray }
-
-            val detections = mutableListOf<DetectionBox>()
-            for (i in 0 until numCols) {
-                val cx = rows[0][i]
-                val cy = rows[1][i]
-                val w  = rows[2][i]
-                val h  = rows[3][i]
-
-                // Find best class score across 9 classes (rows 4..12)
-                var maxScore = 0f
-                var maxClass = 0
-                for (c in 0 until 9) {
-                    val score = rows[4 + c][i]
-                    if (score > maxScore) { maxScore = score; maxClass = c }
+                val detections = mutableListOf<DetectionBox>()
+                for (i in 0 until numCols) {
+                    val cx = rows[0][i]; val cy = rows[1][i]
+                    val w  = rows[2][i]; val h  = rows[3][i]
+                    var maxScore = 0f;   var maxClass = 0
+                    for (c in 0 until 3) {
+                        val score = rows[4 + c][i]
+                        if (score > maxScore) { maxScore = score; maxClass = c }
+                    }
+                    val threshold = CLASS_THRESHOLDS[maxClass] ?: CONF_THRESHOLD_DEFAULT
+                    if (maxScore >= threshold) {
+                        detections.add(DetectionBox(
+                            cx    = cx / INPUT_SIZE, cy = cy / INPUT_SIZE,
+                            w     = w  / INPUT_SIZE, h  = h  / INPUT_SIZE,
+                            label = CUSTOM_LABELS.getOrElse(maxClass) { "Class$maxClass" },
+                            confidence = maxScore
+                        ))
+                    }
                 }
-// Add right after the maxScore loop, before the if (maxScore >= CONF_THRESHOLD) check:
-                if (i % 1000 == 0) { // only print every 1000th box to avoid spam
-                    val scores = (0 until 9).map { c -> "${CUSTOM_LABELS[c]}=${"%.2f".format(rows[4 + c][i])}" }
-                    Log.e("YOLO_DEBUG", "Box[$i] scores: $scores")
+
+                val now = System.currentTimeMillis()
+                nms(detections).filter { box ->
+                    val last = lastDetectedMs[box.label] ?: 0L
+                    if (now - last >= DETECTION_COOLDOWN_MS) {
+                        lastDetectedMs[box.label] = now; true
+                    } else false
                 }
-                if (maxScore >= CONF_THRESHOLD) {
-                    detections.add(DetectionBox(
-                        cx         = cx / INPUT_SIZE,
-                        cy         = cy / INPUT_SIZE,
-                        w          = w  / INPUT_SIZE,
-                        h          = h  / INPUT_SIZE,
-                        label      = CUSTOM_LABELS.getOrElse(maxClass) { "Class$maxClass" },
-                        confidence = maxScore
-                    ))
-                }
+            } catch (e: Exception) {
+                Log.e("YOLO_DEBUG", "Inference failed: ${e.message}", e)
+                emptyList()
+            } finally {
+                inputTensor.close()
+                isRunning.set(false)
             }
+        }
+    }
 
-            val result = nms(detections)
-            Log.e("YOLO_DEBUG", "After NMS: ${result.map { "${it.label}@${"%.2f".format(it.confidence)}" }}")
-            result
-
-        } catch (e: Exception) {
-            Log.e("YOLO_DEBUG", "❌ Inference failed: ${e.message}", e)
-            emptyList()
-        } finally {
-            inputTensor.close()
+    fun close() {
+        synchronized(sessionLock) {
+            session.close()
+            env.close()
         }
     }
 
@@ -134,10 +141,7 @@ class YoloDetector(context: Context) {
         return counts.map { (label, count) -> DetectedItem(label, count) }
     }
 
-    fun close() {
-        session.close()
-        env.close()
-    }
+
 
     private fun bitmapToFloatBuffer(bitmap: Bitmap): FloatBuffer {
         val pixels = IntArray(INPUT_SIZE * INPUT_SIZE)

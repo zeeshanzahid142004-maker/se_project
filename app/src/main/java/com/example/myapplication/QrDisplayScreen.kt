@@ -270,8 +270,8 @@ private fun QrDisplayContent(
     // Subtle ambient glow pulse behind QR card
     val shimmer      = rememberInfiniteTransition(label = "shimmer")
     val shimmerAlpha by shimmer.animateFloat(
-        initialValue  = 0.04f,
-        targetValue   = 0.13f,
+        initialValue  = 0.03f,
+        targetValue   = 0.06f,
         animationSpec = infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label         = "shimmerAlpha"
     )
@@ -639,15 +639,15 @@ private fun shimmerBrush(): Brush {
         initialValue  = -600f,
         targetValue   =  1400f,
         animationSpec = infiniteRepeatable(
-            tween(1400, easing = LinearEasing),
+            tween(2200, easing = LinearEasing),
             RepeatMode.Restart
         ),
         label = "shimmerXQ"
     )
     return Brush.linearGradient(
-        colors = listOf(Color(0xFF1C2333), Color(0xFF2D3B52), Color(0xFF1C2333)),
+        colors = listOf(Color(0xFF1C2333), Color(0xFF232D3F), Color(0xFF1C2333)),
         start  = Offset(x, 0f),
-        end    = Offset(x + 600f, 300f)
+        end = Offset(x + 300f, 150f)
     )
 }
 

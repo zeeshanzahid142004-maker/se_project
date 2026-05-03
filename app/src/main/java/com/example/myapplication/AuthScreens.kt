@@ -22,10 +22,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -45,6 +48,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -119,10 +123,13 @@ fun LauncherScreen(navController: NavController) {
 }
 
 @Composable
+
 fun SignInScreen(navController: NavController) {
     val scope = rememberCoroutineScope()
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    // NEW: State to track password visibility
+    var passwordVisible by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
 
@@ -169,7 +176,6 @@ fun SignInScreen(navController: NavController) {
             }
             val signInResult = withContext(Dispatchers.IO) {
                 runCatching {
-                    // Updated to use the imported v3 Email object
                     SupabaseModule.client.auth.signInWith(Email) {
                         this.email = trimmedEmail
                         this.password = password
@@ -230,13 +236,25 @@ fun SignInScreen(navController: NavController) {
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(Modifier.height(14.dp))
+
+            // UPDATED: Password Field with Toggle Logic
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
                 label = { Text("Password", color = authMuted) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                visualTransformation = PasswordVisualTransformation(),
+                // Toggle the transformation based on state
+                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                // Add the trailing icon button
+                trailingIcon = {
+                    val image = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff
+                    val description = if (passwordVisible) "Hide password" else "Show password"
+
+                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        Icon(imageVector = image, contentDescription = description, tint = authMuted)
+                    }
+                },
                 shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = authAccent,

@@ -168,8 +168,8 @@ fun CameraPreview(
                                                         cooldownMap  = temporalCooldownMap,
                                                         nowMs        = System.currentTimeMillis(),
                                                         iouThreshold = 0.50f,
-                                                        cooldownMs   = 1200L,
-                                                        staleTrackMs = 2000L
+                                                        cooldownMs   = 4000L,
+                                                        staleTrackMs = 8000L
                                                     )
                                                     onBoxesDetected(temporal.visibleBoxes)
                                                     onFrameProjection(FrameProjection(
@@ -182,6 +182,7 @@ fun CameraPreview(
                                                         viewWidth   = viewW,
                                                         viewHeight  = viewH,
                                                         mirrored    = useFrontCamera
+
                                                     ))
                                                     if (temporal.newlyRegistered.isNotEmpty())
                                                         onNewItems(temporal.newlyRegistered)

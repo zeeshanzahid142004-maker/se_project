@@ -147,18 +147,32 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     fun launchSave(boxName: String, itemsSnapshot: List<DetectedItem>) {
         scope.launch(Dispatchers.IO) {
             try {
+                Log.d(TAG, "launchSave: starting — boxName=$boxName items=${itemsSnapshot.size}")
+
                 val boxId = repository.createBox(boxName)
+                Log.d(TAG, "launchSave: box created — boxId=$boxId")
+
                 repository.saveItems(boxId, itemsSnapshot)
+                Log.d(TAG, "launchSave: items saved — navigating to qr_display_screen/$boxId")
+
                 withContext(Dispatchers.Main) {
+                    Log.d(TAG, "launchSave: on Main thread — calling navigate")
                     navController.navigate("qr_display_screen/$boxId") {
                         popUpTo("new_box_screen") { inclusive = true }
                     }
+                    Log.d(TAG, "launchSave: navigate called successfully")
                 }
-                try { supabaseRepo.saveBoxWithItems(boxName, itemsSnapshot) }
-                catch (e: Exception) { Log.e(TAG, "Supabase sync failed: ${e.message}", e) }
+
+                kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+                    try { supabaseRepo.saveBoxWithItems(boxName, itemsSnapshot) }
+                    catch (e: Exception) { Log.e(TAG, "Supabase sync failed: ${e.message}", e) }
+                }
+
             } catch (e: Exception) {
-                Log.e(TAG, "Local DB save failed: ${e.message}", e)
+                Log.e(TAG, "launchSave: CRASHED — ${e.message}", e)
+                e.printStackTrace()
                 withContext(Dispatchers.Main) {
+                    Log.e(TAG, "launchSave: showing error dialog")
                     hasNavigatedRef.set(false); isSaving = false
                     retryAction = { isSaving = true; launchSave(boxName, itemsSnapshot) }
                     saveError = SaveErrorInfo(
@@ -170,7 +184,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             }
         }
     }
-
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             try {

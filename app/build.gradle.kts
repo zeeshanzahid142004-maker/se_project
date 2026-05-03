@@ -128,7 +128,7 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.17.0")
     // TFLite
-
+    implementation("androidx.compose.material:material-icons-extended:<version>")
         // Remove any old tensorflow-lite line and replace with these:
 
     implementation("org.tensorflow:tensorflow-lite:2.14.0")
