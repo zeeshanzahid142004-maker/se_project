@@ -86,5 +86,5 @@ data class SupabaseBoxActivityRow(
 
 @Serializable
 data class SupabaseItemCountRow(
-    val count: Int = 0
+    val count: Int
 )
