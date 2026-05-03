@@ -129,7 +129,7 @@ fun InventoryScreen(navController: NavController) {
     val supabaseRepository = remember { SupabaseRepository() }
     val currentMonth = remember { YearMonth.now() }
     val today = remember { LocalDate.now() }
-
+    var showFullCalendar by remember { mutableStateOf(false) }
     var currentUserId by remember { mutableStateOf<String?>(null) }
     var profileLoading by remember { mutableStateOf(true) }
     var profileMessage by remember { mutableStateOf<String?>(null) }

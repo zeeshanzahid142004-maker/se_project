@@ -219,21 +219,24 @@ fun SignInScreen(navController: NavController) {
                 .padding(top = 64.dp), // TWEAK: hero top
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Spacer(Modifier.height(48.dp)) // TWEAK: hero section top offset
+
             Box(
                 modifier = Modifier
                     .size(72.dp) // TWEAK: logo size
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFF161B22))
-                    .border(1.dp, Color(0xFF30363D), RoundedCornerShape(20.dp)),
+                    .clip(RoundedCornerShape(16.dp)) // TWEAK: logo corner radius
+                    .background(Color(0xFF161B22)),
                 contentAlignment = Alignment.Center
             ) {
                 Image(
                     painter = painterResource(R.drawable.ic_launcher_foreground),
                     contentDescription = "App logo",
-                    modifier = Modifier.size(50.dp) // TWEAK: icon size
+                    modifier = Modifier.size(52.dp) // TWEAK: foreground icon size inside box
                 )
             }
-            Spacer(Modifier.height(12.dp))
+
+            Spacer(Modifier.height(16.dp)) // TWEAK: gap between logo and app name
+
             Text(
                 buildAnnotatedString {
                     withStyle(SpanStyle(color = Color(0xFFF0F6FC))) { append("Stack") }
