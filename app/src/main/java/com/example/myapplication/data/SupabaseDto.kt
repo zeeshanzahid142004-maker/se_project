@@ -85,6 +85,6 @@ data class SupabaseBoxActivityRow(
 )
 
 @Serializable
-data class SupabaseItemQuantityRow(
-    @SerialName("count") val quantity: Int
+data class SupabaseItemCountRow(
+    @SerialName("count") val count: Int
 )

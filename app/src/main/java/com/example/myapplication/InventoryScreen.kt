@@ -119,6 +119,7 @@ private object HomePalette {
 }
 
 private const val TAG_INV = "InventoryScreen"
+private const val QUICK_ACTIONS_MARKER = "//"
 
 @Composable
 fun InventoryScreen(navController: NavController) {
@@ -224,7 +225,7 @@ fun InventoryScreen(navController: NavController) {
                 month = currentMonth,
                 today = today,
                 loading = activityLoading,
-                activeDates = activityDates,
+                activeDates = activeDateSet,
                 onDayClick = { date ->
                     selectedDay = date
                     val userId = currentUserId
@@ -269,7 +270,7 @@ fun InventoryScreen(navController: NavController) {
                     .padding(horizontal = 20.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("//", color = HomePalette.teal, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                Text(QUICK_ACTIONS_MARKER, color = HomePalette.teal, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                 Spacer(Modifier.width(6.dp))
                 Text("QUICK ACTIONS", color = HomePalette.muted, fontSize = 10.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
             }
@@ -371,7 +372,7 @@ private fun CalendarActivityCard(
     month: YearMonth,
     today: LocalDate,
     loading: Boolean,
-    activeDates: List<LocalDate>,
+    activeDates: Set<LocalDate>,
     onDayClick: (LocalDate) -> Unit
 ) {
     val shape = RoundedCornerShape(16.dp)
@@ -422,11 +423,10 @@ private fun CalendarActivityCard(
 private fun CalendarGrid(
     month: YearMonth,
     today: LocalDate,
-    activeDates: List<LocalDate>,
+    activeDates: Set<LocalDate>,
     onDayClick: (LocalDate) -> Unit
 ) {
     val weekDays = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
-    val activeSet = remember(activeDates) { activeDates.toSet() }
     val firstOfMonth = month.atDay(1)
     val startOffset = firstOfMonth.dayOfWeek.value % 7
     val totalDays = month.lengthOfMonth()
@@ -465,7 +465,7 @@ private fun CalendarGrid(
                 ) {
                     if (date != null) {
                         val isToday = date == today
-                        val isActive = activeSet.contains(date)
+                        val isActive = activeDates.contains(date)
                         val color = when {
                             isToday -> HomePalette.white
                             isActive -> HomePalette.teal

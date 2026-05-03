@@ -195,8 +195,8 @@ class SupabaseRepository {
             .select(Columns.list("count")) {
                 filter { isIn("box_id", boxIds) }
             }
-            .decodeList<SupabaseItemQuantityRow>()
-        return items.sumOf { it.quantity }
+            .decodeList<SupabaseItemCountRow>()
+        return items.sumOf { it.count }
     }
 }
 
