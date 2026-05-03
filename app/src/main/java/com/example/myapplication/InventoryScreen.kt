@@ -122,7 +122,6 @@ private object HomePalette {
 }
 
 private const val TAG_INV = "InventoryScreen"
-private const val QUICK_ACTIONS_MARKER = "//"
 
 @Composable
 fun InventoryScreen(navController: NavController) {
@@ -612,69 +611,6 @@ private fun CalendarShimmer() {
             )
         }
     }
-}
-
-@Composable
-private fun StatsRow(
-    modifier: Modifier,
-    loading: Boolean,
-    stats: TotalStats?
-) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        if (loading) {
-            StatChipShimmer(modifier = Modifier.weight(1f))
-            StatChipShimmer(modifier = Modifier.weight(1f))
-        } else {
-            val totalBoxes = stats?.totalBoxes ?: 0
-            val totalItems = stats?.totalItems ?: 0
-            StatChip(value = totalBoxes.toString(), label = "Total boxes scanned", modifier = Modifier.weight(1f))
-            StatChip(value = totalItems.toString(), label = "Total items scanned", modifier = Modifier.weight(1f))
-        }
-    }
-}
-
-@Composable
-private fun StatChip(value: String, label: String, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(16.dp)
-    Box(modifier = modifier) {
-        Box(
-            modifier = Modifier.shadow(
-                elevation    = 10.dp,                              // TWEAK: stats chip shadow depth
-                shape        = shape,
-                spotColor    = Color.White.copy(alpha = 0.04f),    // TWEAK: stats chip spot shadow
-                ambientColor = Color.White.copy(alpha = 0.02f)     // TWEAK: stats chip ambient shadow
-            )
-        ) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = shape,
-                colors = CardDefaults.cardColors(containerColor = HomePalette.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp, pressedElevation = 4.dp), // TWEAK: stats material card lift
-                border = BorderStroke(1.dp, HomePalette.border)
-            ) {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                    Text(value, color = HomePalette.white, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(4.dp))
-                    Text(label, color = HomePalette.muted, fontSize = 11.sp)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun StatChipShimmer(modifier: Modifier = Modifier) {
-    val brush = rememberShimmerBrush()
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(brush)
-            .border(1.dp, HomePalette.border, RoundedCornerShape(16.dp))
-            .height(64.dp)
-    )
 }
 
 @Composable
