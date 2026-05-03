@@ -146,6 +146,7 @@ fun InventoryScreen(navController: NavController) {
     var selectedDay by remember { mutableStateOf<LocalDate?>(null) }
     var dayStatsLoading by remember { mutableStateOf(false) }
     var dayStats by remember { mutableStateOf<DayStats?>(null) }
+    var showFullCalendar by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         currentUserId = SupabaseModule.client.auth.currentUserOrNull()?.id
@@ -244,6 +245,7 @@ fun InventoryScreen(navController: NavController) {
                 today = today,
                 loading = activityLoading,
                 activeDates = activeDateSet,
+                onViewMonth = { showFullCalendar = true },
                 onDayClick = { date ->
                     selectedDay = date
                     val userId = currentUserId
@@ -320,6 +322,17 @@ fun InventoryScreen(navController: NavController) {
             dayStatsLoading = false
         }
     )
+
+    if (showFullCalendar) {
+        FullCalendarSheet(
+            activityDates = activeDateSet,
+            onDaySelected = { day ->
+                selectedDay = day
+                showFullCalendar = false
+            },
+            onDismiss = { showFullCalendar = false }
+        )
+    }
 }
 
 @Composable
@@ -472,6 +485,7 @@ private fun CalendarActivityCard(
     today: LocalDate,
     loading: Boolean,
     activeDates: Set<LocalDate>,
+    onViewMonth: () -> Unit,
     onDayClick: (LocalDate) -> Unit
 ) {
     val shape = RoundedCornerShape(16.dp)
@@ -504,11 +518,28 @@ private fun CalendarActivityCard(
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(Modifier.weight(1f))
-                        Text(
-                            text = "Activity",
-                            color = HomePalette.muted,
-                            fontSize = 11.sp // TWEAK
-                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(HomePalette.teal.copy(alpha = 0.10f)) // TWEAK: chip bg alpha
+                                .border(
+                                    1.dp,
+                                    HomePalette.teal.copy(alpha = 0.30f), // TWEAK: chip border alpha
+                                    RoundedCornerShape(20.dp)
+                                )
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) { onViewMonth() }
+                                .padding(horizontal = 10.dp, vertical = 4.dp) // TWEAK: chip h padding, chip v padding
+                        ) {
+                            Text(
+                                text = "View Month",
+                                color = HomePalette.teal,
+                                fontSize = 10.sp, // TWEAK: chip font size
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                     Spacer(Modifier.height(10.dp))
                     if (loading) {
