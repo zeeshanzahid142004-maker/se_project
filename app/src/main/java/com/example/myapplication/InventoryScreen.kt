@@ -13,38 +13,47 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import android.util.Log
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.*
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavController
-import com.example.myapplication.data.AppDatabase
-import com.example.myapplication.data.BoxRepository
+import androidx.compose.ui.window.Dialog
+import com.example.myapplication.data.DayStats
+import com.example.myapplication.data.SupabaseRepository
+import com.example.myapplication.data.TotalStats
+import com.example.myapplication.data.WarehouseUser
 import com.example.myapplication.ui.theme.SB
+import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
@@ -96,177 +105,556 @@ private object BoxPalette {
     val border = Color(0xFF764816)
 }
 
+private object HomePalette {
+    val bg = Color(0xFF080C10)
+    val surface = Color(0xFF161B22)
+    val surfaceAlt = Color(0xFF1C2333)
+    val teal = Color(0xFF2DD4BF)
+    val red = Color(0xFFE53E3E)
+    val white = Color(0xFFF0F6FC)
+    val muted = Color(0xFF8B949E)
+    val border = Color(0xFF30363D)
+    val shimmerA = Color(0xFF1C2333)
+    val shimmerB = Color(0xFF232D3F)
+}
+
+private const val TAG_INV = "InventoryScreen"
+private const val QUICK_ACTIONS_MARKER = "//"
+
 @Composable
 fun InventoryScreen(navController: NavController) {
-    val context        = LocalContext.current
-    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
-    val scope          = rememberCoroutineScope()
-    val repository     = remember { BoxRepository(AppDatabase.getInstance(context)) }
+    val scope = rememberCoroutineScope()
+    val supabaseRepository = remember { SupabaseRepository() }
+    val currentMonth = remember { YearMonth.now() }
+    val today = remember { LocalDate.now() }
 
-    var activeBoxes  by remember { mutableIntStateOf(0) }
-    var totalItems   by remember { mutableIntStateOf(0) }
+    var currentUserId by remember { mutableStateOf<String?>(null) }
+    var profileLoading by remember { mutableStateOf(true) }
+    var profileMessage by remember { mutableStateOf<String?>(null) }
+    var profile by remember { mutableStateOf<WarehouseUser?>(null) }
+
+    var activityLoading by remember { mutableStateOf(true) }
+    var activityDates by remember { mutableStateOf<List<LocalDate>>(emptyList()) }
+
     var statsLoading by remember { mutableStateOf(true) }
+    var totalStats by remember { mutableStateOf<TotalStats?>(null) }
 
-    // Reload stats every time this screen is RESUMED (e.g. on back from QrDisplayScreen)
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                statsLoading = true
-                scope.launch(Dispatchers.IO) {
-                    val boxes = repository.boxCount()
-                    val items = repository.totalItemCount()
-                    withContext(Dispatchers.Main) {
-                        activeBoxes  = boxes
-                        totalItems   = items
-                        statsLoading = false
-                    }
-                }
-            }
+    val activeDateSet = remember(activityDates) { activityDates.toSet() }
+
+    var selectedDay by remember { mutableStateOf<LocalDate?>(null) }
+    var dayStatsLoading by remember { mutableStateOf(false) }
+    var dayStats by remember { mutableStateOf<DayStats?>(null) }
+
+    LaunchedEffect(Unit) {
+        currentUserId = SupabaseModule.client.auth.currentUserOrNull()?.id
+    }
+
+    LaunchedEffect(currentUserId) {
+        val userId = currentUserId
+        if (userId == null) {
+            profileLoading = false
+            profileMessage = "No employee signed in"
+            activityLoading = false
+            statsLoading = false
+            activityDates = emptyList()
+            totalStats = TotalStats(0, 0)
+            return@LaunchedEffect
         }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+
+        profileLoading = true
+        statsLoading = true
+        activityLoading = true
+        profileMessage = null
+
+        try {
+            profile = withContext(Dispatchers.IO) { supabaseRepository.fetchEmployeeProfile(userId) }
+            if (profile == null) {
+                profileMessage = "Employee record not found"
+            }
+        } catch (e: Exception) {
+            Log.e(TAG_INV, "Employee profile load failed: ${e.message}", e)
+            profileMessage = "Unable to load employee profile"
+        } finally {
+            profileLoading = false
+        }
+
+        try {
+            activityDates = withContext(Dispatchers.IO) {
+                supabaseRepository.fetchActivityDates(userId, currentMonth.year, currentMonth.monthValue)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG_INV, "Activity dates load failed: ${e.message}", e)
+            activityDates = emptyList()
+        } finally {
+            activityLoading = false
+        }
+
+        try {
+            totalStats = withContext(Dispatchers.IO) { supabaseRepository.fetchTotalStats(userId) }
+        } catch (e: Exception) {
+            Log.e(TAG_INV, "Total stats load failed: ${e.message}", e)
+            totalStats = TotalStats(0, 0)
+        } finally {
+            statsLoading = false
+        }
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(SB.bg)
+            .background(HomePalette.bg)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(SB.bg)
-                .padding(horizontal = 20.dp)
+                .verticalScroll(rememberScrollState())
         ) {
-            Spacer(Modifier.height(52.dp))
+            Spacer(Modifier.height(28.dp))
+
+            EmployeeProfileCard(
+                modifier = Modifier.padding(horizontal = 20.dp),
+                loading = profileLoading,
+                profile = profile,
+                message = profileMessage
+            )
+
+            Spacer(Modifier.height(16.dp))
+
+            CalendarActivityCard(
+                modifier = Modifier.padding(horizontal = 20.dp),
+                month = currentMonth,
+                today = today,
+                loading = activityLoading,
+                activeDates = activeDateSet,
+                onDayClick = { date ->
+                    selectedDay = date
+                    val userId = currentUserId
+                    if (userId == null || date !in activeDateSet) {
+                        dayStatsLoading = false
+                        dayStats = DayStats(0, 0)
+                        return@CalendarActivityCard
+                    }
+                    dayStatsLoading = true
+                    dayStats = null
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            val stats = supabaseRepository.fetchDayStats(userId, date)
+                            withContext(Dispatchers.Main) {
+                                dayStats = stats
+                                dayStatsLoading = false
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG_INV, "Day stats load failed: ${e.message}", e)
+                            withContext(Dispatchers.Main) {
+                                dayStats = DayStats(0, 0)
+                                dayStatsLoading = false
+                            }
+                        }
+                    }
+                }
+            )
+
+            Spacer(Modifier.height(16.dp))
+
+            StatsRow(
+                modifier = Modifier.padding(horizontal = 20.dp),
+                loading = statsLoading,
+                stats = totalStats
+            )
+
+            Spacer(Modifier.height(28.dp))
 
             Row(
-                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(SB.teal.copy(alpha = 0.08f))
-                    .border(1.dp, SB.teal.copy(alpha = 0.30f), RoundedCornerShape(20.dp))
-                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(Modifier.size(6.dp).background(SB.teal, CircleShape))
+                Text(QUICK_ACTIONS_MARKER, color = HomePalette.teal, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                 Spacer(Modifier.width(6.dp))
-                Text(
-                    "SYSTEM ACTIVE",
-                    color = SB.teal,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.8.sp
-                )
+                Text("QUICK ACTIONS", color = HomePalette.muted, fontSize = 10.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
             }
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(16.dp))
 
-            Text(
-                text = buildAnnotatedString {
-                    withStyle(SpanStyle(color = SB.white)) { append("Stack") }
-                    withStyle(SpanStyle(color = SB.teal)) { append("BoxAI") }
-                },
-                fontSize = 36.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = (-1.0).sp
-            )
-            Text(
-                "INVENTORY CONTROL",
-                color = SB.muted,
-                fontSize = 10.sp,
-                letterSpacing = 2.sp,
-                modifier = Modifier.padding(top = 2.dp)
-            )
-
-            Spacer(Modifier.height(20.dp))
-            Box(Modifier.fillMaxWidth().height(1.dp).background(SB.border))
-        }
-
-        Spacer(Modifier.height(24.dp))
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            if (statsLoading) {
-                StatCardShimmer(modifier = Modifier.weight(1f))
-                StatCardShimmer(modifier = Modifier.weight(1f))
-            } else {
-                StatCard("$activeBoxes", "Active Boxes", modifier = Modifier.weight(1f))
-                StatCard("$totalItems", "Total Items", modifier = Modifier.weight(1f))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = UiTuning.screenHorizontalPadding),
+                horizontalArrangement = Arrangement.spacedBy(UiTuning.rowSpacing, Alignment.CenterHorizontally)
+            ) {
+                InteractiveBoxItem("Scan QR code", "LOOK UP BOX", navController, "scanner_screen", true)
+                InteractiveBoxItem("New box", "START SCANNING", navController, "new_box_screen", false)
             }
-        }
 
-        Spacer(Modifier.height(28.dp))
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("//", color = SB.teal, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-            Spacer(Modifier.width(6.dp))
-            Text("QUICK ACTIONS", color = SB.muted, fontSize = 10.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = UiTuning.screenHorizontalPadding),
-            horizontalArrangement = Arrangement.spacedBy(UiTuning.rowSpacing, Alignment.CenterHorizontally)
-        ) {
-            InteractiveBoxItem("Scan QR code", "LOOK UP BOX", navController, "scanner_screen", true)
-            InteractiveBoxItem("New box", "START SCANNING", navController, "new_box_screen", false)
+            Spacer(Modifier.height(32.dp))
         }
     }
+
+    DayStatsDialog(
+        selectedDay = selectedDay,
+        loading = dayStatsLoading,
+        stats = dayStats,
+        onDismiss = {
+            selectedDay = null
+            dayStats = null
+            dayStatsLoading = false
+        }
+    )
 }
 
 @Composable
-private fun StatCard(value: String, label: String, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(SB.surface)
-            .border(1.dp, SB.border, RoundedCornerShape(12.dp))
-            .padding(horizontal = 16.dp, vertical = 14.dp)
-    ) {
-        Text(value, color = SB.white, fontSize = 24.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp)
-        Spacer(Modifier.height(2.dp))
-        Text(label, color = SB.muted, fontSize = 11.sp)
+private fun EmployeeProfileCard(
+    modifier: Modifier,
+    loading: Boolean,
+    profile: WarehouseUser?,
+    message: String?
+) {
+    val shape = RoundedCornerShape(16.dp)
+    if (loading) {
+        CardShimmer(modifier = modifier)
+        return
     }
-}
-
-@Composable
-private fun StatCardShimmer(modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "shimmerI")
-    val x by transition.animateFloat(
-        initialValue = -400f,
-        targetValue  =  900f,
-        animationSpec = infiniteRepeatable(
-            tween(1400, easing = LinearEasing),
-            RepeatMode.Restart
-        ),
-        label = "shimmerXI"
-    )
-    val brush = Brush.linearGradient(
-        colors = listOf(Color(0xFF1C2333), Color(0xFF2D3B52), Color(0xFF1C2333)),
-        start  = Offset(x, 0f),
-        end    = Offset(x + 400f, 200f)
-    )
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(brush)
-            .border(1.dp, SB.border, RoundedCornerShape(12.dp))
+            .shadow(6.dp, shape)
+            .clip(shape)
+            .background(HomePalette.surface)
+            .border(1.dp, HomePalette.border, shape)
+            .padding(18.dp)
+    ) {
+        if (profile == null) {
+            Text(
+                text = message ?: "Employee profile unavailable",
+                color = HomePalette.muted,
+                fontSize = 13.sp
+            )
+        } else {
+            Column {
+                Text(
+                    text = if (profile.fullName.isBlank()) "Unnamed Employee" else profile.fullName,
+                    color = HomePalette.white,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(HomePalette.teal.copy(alpha = 0.18f))
+                            .border(1.dp, HomePalette.teal.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = profile.role.ifBlank { "Role unknown" },
+                            color = HomePalette.teal,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = if (profile.email.isBlank()) "Email not available" else profile.email,
+                    color = HomePalette.muted,
+                    fontSize = 12.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarActivityCard(
+    modifier: Modifier,
+    month: YearMonth,
+    today: LocalDate,
+    loading: Boolean,
+    activeDates: Set<LocalDate>,
+    onDayClick: (LocalDate) -> Unit
+) {
+    val shape = RoundedCornerShape(16.dp)
+    val monthLabel = month.month.getDisplayName(TextStyle.FULL, Locale.getDefault())
+    Box(
+        modifier = modifier
+            .shadow(6.dp, shape)
+            .clip(shape)
+            .background(HomePalette.surface)
+            .border(1.dp, HomePalette.border, shape)
+            .padding(16.dp)
+    ) {
+        Column {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "$monthLabel ${month.year}",
+                    color = HomePalette.white,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = "Activity",
+                    color = HomePalette.muted,
+                    fontSize = 11.sp,
+                    letterSpacing = 1.4.sp
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            if (loading) {
+                CalendarShimmer()
+            } else {
+                CalendarGrid(
+                    month = month,
+                    today = today,
+                    activeDates = activeDates,
+                    onDayClick = onDayClick
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarGrid(
+    month: YearMonth,
+    today: LocalDate,
+    activeDates: Set<LocalDate>,
+    onDayClick: (LocalDate) -> Unit
+) {
+    val weekDays = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+    val firstOfMonth = month.atDay(1)
+    val startOffset = firstOfMonth.dayOfWeek.value % 7
+    val totalDays = month.lengthOfMonth()
+
+    val days = buildList<LocalDate?> {
+        repeat(startOffset) { add(null) }
+        for (day in 1..totalDays) {
+            add(month.atDay(day))
+        }
+        while (size % 7 != 0) add(null)
+    }
+
+    Row(modifier = Modifier.fillMaxWidth()) {
+        weekDays.forEach { label ->
+            Text(
+                text = label,
+                color = HomePalette.muted,
+                fontSize = 11.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+
+    Spacer(Modifier.height(8.dp))
+
+    days.chunked(7).forEach { week ->
+        Row(modifier = Modifier.fillMaxWidth()) {
+            week.forEach { date ->
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(40.dp)
+                        .clickable(enabled = date != null) { date?.let(onDayClick) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (date != null) {
+                        val isToday = date == today
+                        val isActive = activeDates.contains(date)
+                        val color = when {
+                            isToday -> HomePalette.white
+                            isActive -> HomePalette.teal
+                            else -> HomePalette.muted
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = date.dayOfMonth.toString(),
+                                color = color,
+                                fontSize = 13.sp,
+                                fontWeight = if (isToday) FontWeight.SemiBold else FontWeight.Normal
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            if (isActive) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .background(HomePalette.teal, CircleShape)
+                                )
+                            } else {
+                                Spacer(Modifier.size(6.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarShimmer() {
+    val brush = rememberShimmerBrush()
+    Column {
+        repeat(6) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                repeat(7) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(28.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(brush)
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun StatsRow(
+    modifier: Modifier,
+    loading: Boolean,
+    stats: TotalStats?
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        if (loading) {
+            StatChipShimmer(modifier = Modifier.weight(1f))
+            StatChipShimmer(modifier = Modifier.weight(1f))
+        } else {
+            val totalBoxes = stats?.totalBoxes ?: 0
+            val totalItems = stats?.totalItems ?: 0
+            StatChip(value = totalBoxes.toString(), label = "Total boxes scanned", modifier = Modifier.weight(1f))
+            StatChip(value = totalItems.toString(), label = "Total items scanned", modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun StatChip(value: String, label: String, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        modifier = modifier
+            .shadow(4.dp, shape)
+            .clip(shape)
+            .background(HomePalette.surfaceAlt)
+            .border(1.dp, HomePalette.border, shape)
             .padding(horizontal = 16.dp, vertical = 14.dp)
-            .height(56.dp)
+    ) {
+        Text(value, color = HomePalette.white, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(4.dp))
+        Text(label, color = HomePalette.muted, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun StatChipShimmer(modifier: Modifier = Modifier) {
+    val brush = rememberShimmerBrush()
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(brush)
+            .border(1.dp, HomePalette.border, RoundedCornerShape(16.dp))
+            .height(64.dp)
     )
 }
+
+@Composable
+private fun CardShimmer(modifier: Modifier) {
+    val brush = rememberShimmerBrush()
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(brush)
+            .border(1.dp, HomePalette.border, RoundedCornerShape(16.dp))
+            .height(120.dp)
+    )
+}
+
+@Composable
+private fun rememberShimmerBrush(): Brush {
+    val transition = rememberInfiniteTransition(label = "shimmerHome")
+    val x by transition.animateFloat(
+        initialValue = -500f,
+        targetValue = 900f,
+        animationSpec = infiniteRepeatable(
+            tween(2200, easing = LinearEasing),
+            RepeatMode.Restart
+        ),
+        label = "shimmerHomeX"
+    )
+    return Brush.linearGradient(
+        colors = listOf(HomePalette.shimmerA, HomePalette.shimmerB, HomePalette.shimmerA),
+        start = Offset(x, 0f),
+        end = Offset(x + 500f, 200f)
+    )
+}
+
+@Composable
+private fun DayStatsDialog(
+    selectedDay: LocalDate?,
+    loading: Boolean,
+    stats: DayStats?,
+    onDismiss: () -> Unit
+) {
+    if (selectedDay == null) return
+    val configuration = LocalConfiguration.current
+    val dialogWidth = configuration.screenWidthDp.dp * 0.8f
+    val formatter = remember { DateTimeFormatter.ofPattern("MMM d, yyyy") }
+    Dialog(onDismissRequest = onDismiss) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Surface(
+                modifier = Modifier
+                    .width(dialogWidth)
+                    .clip(RoundedCornerShape(16.dp))
+                    .border(1.dp, HomePalette.border, RoundedCornerShape(16.dp)),
+                color = HomePalette.surfaceAlt,
+                shadowElevation = 8.dp
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = selectedDay.format(formatter),
+                        color = HomePalette.white,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    when {
+                        loading -> Text("Loading activity…", color = HomePalette.muted, fontSize = 13.sp)
+                        stats == null || stats.boxes == 0 -> Text(
+                            "No scans recorded for this day",
+                            color = HomePalette.muted,
+                            fontSize = 13.sp
+                        )
+                        else -> {
+                            Text(
+                                "Boxes scanned: ${stats.boxes}",
+                                color = HomePalette.white,
+                                fontSize = 13.sp
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Total items: ${stats.items}",
+                                color = HomePalette.white,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 @Composable
 fun InteractiveBoxItem(

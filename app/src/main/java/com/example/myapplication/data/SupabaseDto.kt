@@ -31,7 +31,8 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class SupabaseBoxInsert(
-    @SerialName("box_label") val boxLabel: String
+    @SerialName("box_label") val boxLabel: String,
+    @SerialName("created_by") val createdBy: String
 )
 
 /**
@@ -69,3 +70,21 @@ data class SupabaseItemResponse(
     val count: Int
 )
 
+@Serializable
+data class WarehouseUser(
+    val id: String,
+    @SerialName("full_name") val fullName: String = "",
+    val role: String = "",
+    val email: String = ""
+)
+
+@Serializable
+data class SupabaseBoxActivityRow(
+    val id: Long,
+    @SerialName("created_at") val createdAt: String = ""
+)
+
+@Serializable
+data class SupabaseItemCountRow(
+    @SerialName("count") val count: Int
+)

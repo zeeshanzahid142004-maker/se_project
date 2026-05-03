@@ -5,6 +5,8 @@ import com.example.myapplication.DetectedItem
 import com.example.myapplication.SupabaseModule
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
+import java.time.LocalDate
+import java.time.ZoneOffset
 
 private const val TAG_REPO = "SupabaseRepository"
 
@@ -23,6 +25,7 @@ class SupabaseRepository {
 
     private val boxesTable = SupabaseModule.client.postgrest["boxes"]
     private val itemsTable = SupabaseModule.client.postgrest["items"]
+    private val usersTable = SupabaseModule.client.postgrest["warehouse_users"]
 
     /**
      * Atomically saves a box and all its detected items to Supabase.
@@ -36,8 +39,8 @@ class SupabaseRepository {
      *
      * @return The server-generated box id (can be used to link local Room records).
      */
-    suspend fun saveBoxWithItems(boxLabel: String, items: List<DetectedItem>): Long {
-        Log.d(TAG_REPO, "saveBoxWithItems — boxLabel='$boxLabel' itemCount=${items.size}")
+    suspend fun saveBoxWithItems(boxLabel: String, items: List<DetectedItem>, createdBy: String): Long {
+        Log.d(TAG_REPO, "saveBoxWithItems — boxLabel='$boxLabel' itemCount=${items.size} createdBy=$createdBy")
         Log.d(TAG_REPO, "  → Supabase URL: ${com.example.myapplication.BuildConfig.SUPABASE_URL}")
         Log.d(TAG_REPO, "  → Supabase key present: ${com.example.myapplication.BuildConfig.SUPABASE_KEY.isNotBlank()}")
 
@@ -45,7 +48,7 @@ class SupabaseRepository {
         val box = try {
             Log.d(TAG_REPO, "  → inserting into 'boxes' table…")
             val result = boxesTable
-                .insert(SupabaseBoxInsert(boxLabel = boxLabel)) {
+                .insert(SupabaseBoxInsert(boxLabel = boxLabel, createdBy = createdBy)) {
                     select(Columns.list("id", "box_label"))
                 }
                 .decodeSingle<SupabaseBoxResponse>()
@@ -123,5 +126,86 @@ class SupabaseRepository {
         Log.d(TAG_REPO, "fetchBoxWithItems completed — boxId=${box.id}, ${items.size} item(s)")
         return Pair(box, items)
     }
+
+    suspend fun fetchEmployeeProfile(userId: String): WarehouseUser? {
+        Log.d(TAG_REPO, "fetchEmployeeProfile — userId=$userId")
+        return try {
+            usersTable
+                .select(Columns.list("id", "full_name", "role", "email")) {
+                    filter { eq("id", userId) }
+                }
+                .decodeSingleOrNull<WarehouseUser>()
+        } catch (e: Exception) {
+            Log.e(TAG_REPO, "  ✗ employee fetch FAILED: ${e::class.simpleName} — ${e.message}", e)
+            throw e
+        }
+    }
+
+    suspend fun fetchActivityDates(userId: String, year: Int, month: Int): List<LocalDate> {
+        Log.d(TAG_REPO, "fetchActivityDates — userId=$userId year=$year month=$month")
+        val start = LocalDate.of(year, month, 1).atStartOfDay(ZoneOffset.UTC).toInstant().toString()
+        val end = LocalDate.of(year, month, 1).plusMonths(1).atStartOfDay(ZoneOffset.UTC).toInstant().toString()
+        val rows = boxesTable
+            .select(Columns.list("id", "created_at")) {
+                filter {
+                    eq("created_by", userId)
+                    gte("created_at", start)
+                    lt("created_at", end)
+                }
+            }
+            .decodeList<SupabaseBoxActivityRow>()
+        return rows.map {
+            java.time.Instant.parse(it.createdAt).atZone(ZoneOffset.UTC).toLocalDate()
+        }.distinct()
+    }
+
+    suspend fun fetchDayStats(userId: String, date: LocalDate): DayStats {
+        Log.d(TAG_REPO, "fetchDayStats — userId=$userId date=$date")
+        val start = date.atStartOfDay(ZoneOffset.UTC).toInstant().toString()
+        val end = date.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().toString()
+        val boxes = boxesTable
+            .select(Columns.list("id", "created_at")) {
+                filter {
+                    eq("created_by", userId)
+                    gte("created_at", start)
+                    lt("created_at", end)
+                }
+            }
+            .decodeList<SupabaseBoxActivityRow>()
+        val boxIds = boxes.map { it.id }
+        val totalItems = fetchItemsCountForBoxes(boxIds)
+        return DayStats(boxes = boxIds.size, items = totalItems)
+    }
+
+    suspend fun fetchTotalStats(userId: String): TotalStats {
+        Log.d(TAG_REPO, "fetchTotalStats — userId=$userId")
+        val boxes = boxesTable
+            .select(Columns.list("id")) {
+                filter { eq("created_by", userId) }
+            }
+            .decodeList<SupabaseBoxActivityRow>()
+        val boxIds = boxes.map { it.id }
+        val totalItems = fetchItemsCountForBoxes(boxIds)
+        return TotalStats(totalBoxes = boxIds.size, totalItems = totalItems)
+    }
+
+    private suspend fun fetchItemsCountForBoxes(boxIds: List<Long>): Int {
+        if (boxIds.isEmpty()) return 0
+        val items = itemsTable
+            .select(Columns.list("count")) {
+                filter { isIn("box_id", boxIds) }
+            }
+            .decodeList<SupabaseItemCountRow>()
+        return items.sumOf { it.count }
+    }
 }
 
+data class DayStats(
+    val boxes: Int,
+    val items: Int
+)
+
+data class TotalStats(
+    val totalBoxes: Int,
+    val totalItems: Int
+)
