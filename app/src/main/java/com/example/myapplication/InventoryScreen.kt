@@ -228,7 +228,7 @@ fun InventoryScreen(navController: NavController) {
                 onDayClick = { date ->
                     selectedDay = date
                     val userId = currentUserId
-                    if (userId == null || activeDateSet.contains(date).not()) {
+                    if (userId == null || date !in activeDateSet) {
                         dayStatsLoading = false
                         dayStats = DayStats(0, 0)
                         return@CalendarActivityCard
@@ -346,7 +346,7 @@ private fun EmployeeProfileCard(
                             .padding(horizontal = 10.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = if (profile.role.isBlank()) "ROLE UNKNOWN" else profile.role.uppercase(Locale.getDefault()),
+                            text = profile.role.ifBlank { "Role unknown" },
                             color = HomePalette.teal,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,

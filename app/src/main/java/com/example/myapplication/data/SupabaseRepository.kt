@@ -191,16 +191,12 @@ class SupabaseRepository {
 
     private suspend fun fetchItemsCountForBoxes(boxIds: List<Long>): Int {
         if (boxIds.isEmpty()) return 0
-        var total = 0
-        for (boxId in boxIds) {
-            val items = itemsTable
-                .select(Columns.list("count")) {
-                    filter { eq("box_id", boxId) }
-                }
-                .decodeList<SupabaseItemCountRow>()
-            total += items.sumOf { it.count }
-        }
-        return total
+        val items = itemsTable
+            .select(Columns.list("count")) {
+                filter { isIn("box_id", boxIds) }
+            }
+            .decodeList<SupabaseItemCountRow>()
+        return items.sumOf { it.count }
     }
 }
 
