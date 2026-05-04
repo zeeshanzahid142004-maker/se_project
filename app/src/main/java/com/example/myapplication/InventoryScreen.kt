@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.drawscope.*
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.toUpperCase
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -573,7 +574,7 @@ private fun EmployeeProfileCard(
                 modifier = Modifier.fillMaxWidth(),
                 shape = shape,
                 colors = CardDefaults.cardColors(containerColor = HomePalette.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
                 border = BorderStroke(1.dp, HomePalette.border)
             ) {
                 if (profile == null) {
@@ -608,10 +609,11 @@ private fun EmployeeProfileCard(
                                     .padding(horizontal = 8.dp, vertical = 3.dp)
                             ) {
                                 Text(
-                                    text = profile.role.ifBlank { "Role unknown" },
+                                    text = profile.role.ifBlank { "Role unknown" }.uppercase(),
                                     color = HomePalette.teal,
                                     fontSize = 10.sp, // TWEAK
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSpacing = 1.sp
                                 )
                             }
                             Spacer(Modifier.height(4.dp))
