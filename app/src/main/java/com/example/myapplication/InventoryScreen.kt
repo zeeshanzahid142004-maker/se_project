@@ -416,7 +416,6 @@ fun InventoryScreen(navController: NavController) {
                                                 )
                                                 .background(
                                                     when {
-                                                        isToday -> Color(0xFF2DD4BF).copy(alpha = 0.15f)
                                                         isActive -> Color(0xFF2DD4BF).copy(alpha = 0.07f)
                                                         else -> Color.Transparent
                                                     }
@@ -428,8 +427,7 @@ fun InventoryScreen(navController: NavController) {
                                                 if (isValid) "$dayNum" else "",
                                                 color = when {
                                                     !isValid -> Color.Transparent
-                                                    isToday -> Color(0xFFF0F6FC)
-                                                    isActive -> Color(0xFF2DD4BF)
+                                                    isToday || isActive -> Color(0xFF2DD4BF)
                                                     else -> Color(0xFF8B949E)
                                                 },
                                                 fontSize = 13.sp,
