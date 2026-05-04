@@ -363,16 +363,17 @@ private fun QrDisplayContent(
                     .offset(y = slideUp.dp)
             ) {
                 Text(
-                    "Scan to identify",
+                    "SCAN TO IDENTIFY",
                     color      = whiteQ,
                     fontSize   = 26.sp,
                     fontWeight = FontWeight.Bold,
-                    textAlign  = TextAlign.Center
+                    textAlign  = TextAlign.Center,
+                    letterSpacing = 1.5.sp
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
                     "Attach this QR to your box",
-                    color     = mutedQ,
+                    color     =tealQ,
                     fontSize  = 13.sp,
                     textAlign = TextAlign.Center
                 )
@@ -590,10 +591,11 @@ private fun QrDisplayContent(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Share / Print QR",
+                            "SHARE / PRINT QR",
                             color      = Color.White,
                             fontSize   = 15.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 1.5.sp
                         )
                     }
                 }
@@ -617,10 +619,11 @@ private fun QrDisplayContent(
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        "Back to Home",
+                        "BACK TO HOME",
                         color      = mutedQ,
                         fontSize   = 15.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        letterSpacing = 1.5.sp
                     )
                 }
             }

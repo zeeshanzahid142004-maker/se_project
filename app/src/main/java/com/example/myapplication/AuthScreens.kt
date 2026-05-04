@@ -66,6 +66,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.font.FontStyle
 
 // Updated Supabase v3 Imports
 import io.github.jan.supabase.auth.providers.builtin.Email
@@ -177,13 +178,15 @@ fun SignInScreen(navController: NavController) {
                 }
             }
             if (accessAllowed.isFailure) {
-                Log.e(TAG_AUTH, "Access check failed: ${accessAllowed.exceptionOrNull()?.message}", accessAllowed.exceptionOrNull())
-                errorMessage = "Unable to verify access. Please try again."
+                val exactError = accessAllowed.exceptionOrNull()?.message ?: "Unknown DB error"
+                Log.e(TAG_AUTH, "Access check failed: $exactError", accessAllowed.exceptionOrNull())
+                // SHOW THE EXACT DATABASE ERROR ON SCREEN
+                errorMessage = "DB Error: $exactError"
                 isLoading = false
                 return@launch
             }
             if (accessAllowed.getOrDefault(false).not()) {
-                errorMessage = "Access denied. Contact your administrator."
+                errorMessage = "Access denied. Email not found in warehouse_users."
                 isLoading = false
                 return@launch
             }
@@ -196,8 +199,10 @@ fun SignInScreen(navController: NavController) {
                 }
             }
             if (signInResult.isFailure) {
-                Log.e(TAG_AUTH, "Sign-in failed: ${signInResult.exceptionOrNull()?.message}", signInResult.exceptionOrNull())
-                errorMessage = "Sign in failed. Check your credentials."
+                val exactError = signInResult.exceptionOrNull()?.message ?: "Unknown Auth error"
+                Log.e(TAG_AUTH, "Sign-in failed: $exactError", signInResult.exceptionOrNull())
+                // SHOW THE EXACT AUTH ERROR ON SCREEN
+                errorMessage = "Auth Error: $exactError"
                 isLoading = false
                 return@launch
             }
@@ -282,12 +287,22 @@ fun SignInScreen(navController: NavController) {
                     Column(
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp) // TWEAK: card padding
                     ) {
-                        Text(
-                            "Employee Sign In",
-                            color = Color(0xFF2DD4BF),
-                            fontSize = 22.sp, // TWEAK: title size
-                            fontWeight = FontWeight.Bold
-                        )
+                        Row {
+                            Text(
+                                "EMPLOYEE ",
+                                color = HomePalette.white,
+                                fontSize = 22.sp, // TWEAK: title size
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.5.sp // TWEAK
+                            )
+                            Text(
+                                " SIGN IN",
+                                color = Color(0xFF2DD4BF),
+                                fontSize = 22.sp, // TWEAK: title size
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.5.sp
+                            )
+                        }
                         Text(
                             "Use your assigned credentials to continue",
                             color = Color(0xFF8B949E),
@@ -306,7 +321,7 @@ fun SignInScreen(navController: NavController) {
                             modifier = Modifier.fillMaxWidth(),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor      = Color(0xFF2DD4BF),
-                                unfocusedBorderColor    = Color(0xFF30363D),
+                                unfocusedBorderColor    = Color(0xFF009688),
                                 focusedLabelColor       = Color(0xFF2DD4BF),
                                 unfocusedLabelColor     = Color(0xFF8B949E),
                                 focusedTextColor        = Color(0xFFF0F6FC),
@@ -338,7 +353,7 @@ fun SignInScreen(navController: NavController) {
                             modifier = Modifier.fillMaxWidth(),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor      = Color(0xFF2DD4BF),
-                                unfocusedBorderColor    = Color(0xFF30363D),
+                                unfocusedBorderColor    = Color(0xFF009688),
                                 focusedLabelColor       = Color(0xFF2DD4BF),
                                 unfocusedLabelColor     = Color(0xFF8B949E),
                                 focusedTextColor        = Color(0xFFF0F6FC),
@@ -389,8 +404,8 @@ fun SignInScreen(navController: NavController) {
                                 .shadow(
                                     elevation    = if (isPressed) 2.dp else 20.dp, // TWEAK: button shadow
                                     shape        = RoundedCornerShape(12.dp),
-                                    spotColor    = Color(0xFF136B5C).copy(alpha = 0.8f), // TWEAK: button glow
-                                    ambientColor = Color(0xFF136B5C).copy(alpha = 0.4f)  // TWEAK: button ambient
+                                    spotColor    = Color(0xFF136B5C).copy(alpha = 0.9f), // TWEAK: button glow
+                                    ambientColor = Color(0xFF136B5C).copy(alpha = 0.7f)  // TWEAK: button ambient
                                 )
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(
@@ -440,10 +455,12 @@ fun SignInScreen(navController: NavController) {
                                 }
                             } else {
                                 Text(
-                                    "Sign In",
+                                    "SIGN IN",
                                     color = Color.White, // TWEAK: button text
                                     fontSize = 15.sp, // TWEAK: button text
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+
+                                            letterSpacing = 1.5.sp
                                 )
                             }
                         }
@@ -499,26 +516,69 @@ fun ForgotPasswordScreen(navController: NavController) {
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .clickable(remember { MutableInteractionSource() }, null) { navController.popBackStack() }
-                    .padding(vertical = 8.dp)
+                    .padding(vertical = 25.dp)
             ) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = authText, modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = authText, modifier = Modifier.size(25.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Back", color = authText, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text("BACK", color = authText, fontSize = 15.sp, fontWeight = FontWeight.Medium,letterSpacing = 1.5.sp)
             }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(15.dp))
             Text(
-                "Forgot Password",
+                "FORGOT PASSWORD",
                 color = authText,
                 fontSize = 22.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.5.sp
             )
             Spacer(Modifier.height(12.dp))
-            Text(
-                "To reset your password, please contact your warehouse administrator.",
-                color = authMuted,
-                fontSize = 14.sp,
-                lineHeight = 20.sp
-            )
+            Card(
+                modifier  = Modifier.fillMaxWidth(),
+                shape     = RoundedCornerShape(14.dp),
+                colors    = CardDefaults.cardColors(containerColor = Color(0xFF1C2333)),
+                border    = BorderStroke(1.dp, Color(0xFF30363D)),
+                elevation = CardDefaults.cardElevation(
+                    defaultElevation = 25.dp
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    // Teal accent bar on left edge
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .height(42.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(Color(0xFF2DD4BF))
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Row {
+                            Text(
+                                "To reset your password, please",
+                                color      = Color(0xFF8B949E),
+                                fontSize   = 14.sp,
+                                lineHeight = 20.sp
+                            )
+                            Text(
+                                " contact your ",
+                                color      = Color(0xFF2DD4BF),
+                                fontSize   = 14.sp,
+                                lineHeight = 20.sp
+                            )
+                        }
+                        Text(
+                            "warehouse administrator.",
+                            color      = Color(0xFF2DD4BF),
+                            fontSize   = 14.sp,
+                            lineHeight = 20.sp
+                        )
+                    }
+                }
+            }
+
+
         }
     }
 }

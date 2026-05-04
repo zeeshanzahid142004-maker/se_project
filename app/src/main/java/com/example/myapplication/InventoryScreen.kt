@@ -60,6 +60,7 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.ceil
 
 
 
@@ -67,7 +68,7 @@ private object UiTuning {
     // BIGGER boxes
     val itemWidth = 170.dp
     val canvasWidth = 190.dp
-    val canvasHeight = 200.dp
+    val canvasHeight = 160.dp
 
     val rowSpacing = 18.dp
     val screenHorizontalPadding = 16.dp
@@ -108,7 +109,7 @@ private object BoxPalette {
     val border = Color(0xFF764816)
 }
 
-private object HomePalette {
+object HomePalette {
     val bg = Color(0xFF080C10)
     val surface = Color(0xFF161B22)
     val surfaceAlt = Color(0xFF1C2333)
@@ -129,7 +130,7 @@ fun InventoryScreen(navController: NavController) {
     val supabaseRepository = remember { SupabaseRepository() }
     val currentMonth = remember { YearMonth.now() }
     val today = remember { LocalDate.now() }
-    var showFullCalendar by remember { mutableStateOf(false) }
+
     var currentUserId by remember { mutableStateOf<String?>(null) }
     var profileLoading by remember { mutableStateOf(true) }
     var profileMessage by remember { mutableStateOf<String?>(null) }
@@ -216,13 +217,24 @@ fun InventoryScreen(navController: NavController) {
             verticalArrangement = Arrangement.spacedBy(10.dp) // TWEAK: section gaps
         ) {
             Spacer(Modifier.height(12.dp)) // TWEAK: top gap
-
-            Text(
-                "Welcome back,",
-                color = HomePalette.muted,
-                fontSize = 12.sp // TWEAK: welcome size
-            )
-
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(6.dp) // TWEAK: accent bar width
+                        .height(12.dp) // TWEAK: accent bar height
+                        .background(HomePalette.teal)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "WELCOME BACK,",
+                    color = HomePalette.white,
+                    fontSize = 16.sp, // TWEAK: welcome size
+                    letterSpacing = 1.5.sp
+                )
+            }
             EmployeeProfileCard(
                 modifier = Modifier.fillMaxWidth(),
                 loading = profileLoading,
@@ -231,84 +243,283 @@ fun InventoryScreen(navController: NavController) {
                 totalStats = totalStats,
                 statsLoading = statsLoading
             )
-
-            Text(
-                "Activity Calendar",
-                color = HomePalette.white,
-                fontSize = 13.sp, // TWEAK
-                fontWeight = FontWeight.SemiBold
-            )
-
-            CalendarActivityCard(
-                modifier = Modifier.fillMaxWidth(),
-                month = currentMonth,
-                today = today,
-                loading = activityLoading,
-                activeDates = activeDateSet,
-                onViewMonth = { showFullCalendar = true },
-                onDayClick = { date ->
-                    selectedDay = date
-                    val userId = currentUserId
-                    if (userId == null || date !in activeDateSet) {
-                        dayStatsLoading = false
-                        dayStats = DayStats(0, 0)
-                        return@CalendarActivityCard
-                    }
-                    dayStatsLoading = true
-                    dayStats = null
-                    scope.launch(Dispatchers.IO) {
-                        try {
-                            val stats = supabaseRepository.fetchDayStats(userId, date)
-                            withContext(Dispatchers.Main) {
-                                dayStats = stats
-                                dayStatsLoading = false
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG_INV, "Day stats load failed: ${e.message}", e)
-                            withContext(Dispatchers.Main) {
-                                dayStats = DayStats(0, 0)
-                                dayStatsLoading = false
-                            }
-                        }
-                    }
-                }
-            )
-
-            // Quick actions label
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
-                        .width(3.dp) // TWEAK: accent bar width
+                        .width(6.dp) // TWEAK: accent bar width
                         .height(16.dp) // TWEAK: accent bar height
                         .background(HomePalette.teal)
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    "QUICK ACTIONS",
+                    "ACTIVITY CALENDAR",
                     color = HomePalette.white,
-                    fontSize = 12.sp, // TWEAK
+                    fontSize = 20.sp, // TWEAK
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.5.sp // TWEAK
+                    letterSpacing = 1.5.sp
                 )
             }
-
-            // Action buttons
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp) // TWEAK
+            // Full month calendar card — inline, no sheet needed
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(
+                        elevation = 16.dp,
+                        shape = RoundedCornerShape(16.dp),
+                        spotColor = Color.White.copy(alpha = 0.08f),
+                        ambientColor = Color.White.copy(alpha = 0.04f)
+                    )
             ) {
-                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    InteractiveBoxItem("Scan QR code", "LOOK UP BOX", navController, "scanner_screen", true)
-                }
-                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    InteractiveBoxItem("New box", "START SCANNING", navController, "new_box_screen", false)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF161B22)),
+                    border = BorderStroke(1.dp, Color(0xFF30363D)),
+                    elevation = CardDefaults.cardElevation(0.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(
+                            horizontal = 16.dp,
+                            vertical = 14.dp
+                        )
+                    ) {
+                        // Header
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                currentMonth.format(
+                                    DateTimeFormatter.ofPattern("MMMM yyyy")
+                                ).uppercase(),
+                                color = Color(0xFF2DD4BF),
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.5.sp
+                            )
+                            Text(
+                                "Activity",
+                                color = Color(0xFF8B949E),
+                                fontSize = 11.sp
+                            )
+                        }
+
+                        Spacer(Modifier.height(10.dp))
+
+                        // Day headers
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            listOf("S", "M", "T", "W", "T", "F", "S").forEach { d ->
+                                Text(
+                                    d,
+                                    modifier = Modifier.weight(1f),
+                                    textAlign = TextAlign.Center,
+                                    color = Color(0xFF8B949E),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(6.dp))
+
+                        // Full month grid
+                        val firstOfMonth = currentMonth.atDay(1)
+                        val daysInMonth = currentMonth.lengthOfMonth()
+                        val firstDayOffset = firstOfMonth.dayOfWeek.value % 7
+                        val totalCells = firstDayOffset + daysInMonth
+                        val weeks = ceil(totalCells / 7.0).toInt()
+
+                        if (activityLoading) {
+                            repeat(5) {
+                                Row(modifier = Modifier.fillMaxWidth()) {
+                                    repeat(7) {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .padding(3.dp)
+                                                .height(32.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(Color(0xFF1C2333))
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            repeat(weeks) { week ->
+                                Row(modifier = Modifier.fillMaxWidth()) {
+                                    repeat(7) { col ->
+                                        val cellIndex = week * 7 + col
+                                        val dayNum = cellIndex - firstDayOffset + 1
+                                        val isValid = dayNum in 1..daysInMonth
+                                        val date = if (isValid)
+                                            firstOfMonth.withDayOfMonth(dayNum).also {
+                                                // convert to LocalDate if currentMonth is YearMonth
+                                            } else null
+                                        val localDate = if (isValid)
+                                            java.time.LocalDate.of(
+                                                currentMonth.year,
+                                                currentMonth.month,
+                                                dayNum
+                                            ) else null
+                                        val isActive =
+                                            localDate != null && localDate in activeDateSet
+                                        val isToday = localDate == today
+
+                                        Column(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .padding(vertical = 3.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .then(
+                                                    if (localDate != null)
+                                                        Modifier.clickable {
+                                                            if (localDate != null) {
+                                                                // reuse existing onDayClick logic
+                                                                selectedDay = localDate
+                                                                val userId = currentUserId
+                                                                if (userId == null || localDate !in activeDateSet) {
+                                                                    dayStatsLoading = false
+                                                                    dayStats = DayStats(0, 0)
+                                                                } else {
+                                                                    dayStatsLoading = true
+                                                                    dayStats = null
+                                                                    scope.launch(Dispatchers.IO) {
+                                                                        try {
+                                                                            val stats =
+                                                                                supabaseRepository.fetchDayStats(
+                                                                                    userId,
+                                                                                    localDate
+                                                                                )
+                                                                            withContext(Dispatchers.Main) {
+                                                                                dayStats = stats
+                                                                                dayStatsLoading =
+                                                                                    false
+                                                                            }
+                                                                        } catch (e: Exception) {
+                                                                            withContext(Dispatchers.Main) {
+                                                                                dayStats =
+                                                                                    DayStats(0, 0)
+                                                                                dayStatsLoading =
+                                                                                    false
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    else Modifier
+                                                )
+                                                .background(
+                                                    when {
+                                                        isToday -> Color(0xFF2DD4BF).copy(alpha = 0.15f)
+                                                        isActive -> Color(0xFF2DD4BF).copy(alpha = 0.07f)
+                                                        else -> Color.Transparent
+                                                    }
+                                                )
+                                                .padding(vertical = 6.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(
+                                                if (isValid) "$dayNum" else "",
+                                                color = when {
+                                                    !isValid -> Color.Transparent
+                                                    isToday -> Color(0xFFF0F6FC)
+                                                    isActive -> Color(0xFF2DD4BF)
+                                                    else -> Color(0xFF8B949E)
+                                                },
+                                                fontSize = 13.sp,
+                                                fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                            Spacer(Modifier.height(3.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(if (isActive) 5.dp else 0.dp)
+                                                    .background(Color(0xFF2DD4BF), CircleShape)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(6.dp))
+
+                        // Legend
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(Modifier.size(5.dp).background(Color(0xFF2DD4BF), CircleShape))
+                            Spacer(Modifier.width(5.dp))
+                            Text("Scan activity", color = Color(0xFF8B949E), fontSize = 10.sp)
+                        }
+                    }
                 }
             }
 
-            Spacer(Modifier.height(4.dp)) // TWEAK: bottom breath
+            // Quick actions label
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(6.dp) // TWEAK: accent bar width
+                            .height(16.dp) // TWEAK: accent bar height
+                            .background(HomePalette.teal)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "QUICK ACTIONS",
+                        color = HomePalette.white,
+                        fontSize = 20.sp, // TWEAK
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.5.sp // TWEAK
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF161B22)),
+                    border = BorderStroke(1.dp, Color(0xFF30363D)),
+                    elevation = CardDefaults.cardElevation(25.dp)
+                )  {
+                    // Action buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp) // TWEAK
+                    ) {
+                        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                            InteractiveBoxItem(
+                                "SCAN QR CODE",
+                                "LOOK UP BOX",
+                                navController,
+                                "scanner_screen",
+                                true
+                            )
+                        }
+                        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                            InteractiveBoxItem(
+                                "NEW BOX",
+                                "START SCANNING",
+                                navController,
+                                "new_box_screen",
+                                false
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(24.dp)) // TWEAK: bottom breath
+                     }
+            }
         }
     }
 
@@ -936,11 +1147,12 @@ fun InteractiveBoxItem(
             title,
             color = if (busy) SB.teal else SB.white,
             fontWeight = FontWeight.Medium,
-            fontSize = 15.sp
+            fontSize = 15.sp,
+            letterSpacing = 1.5.sp,
         )
         Text(
             subtitle,
-            color = SB.muted,
+            color = SB.teal,
             fontSize = 10.sp,
             letterSpacing = 1.2.sp,
             textAlign = TextAlign.Center,
