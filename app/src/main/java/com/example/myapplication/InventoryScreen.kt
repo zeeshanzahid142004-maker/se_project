@@ -611,7 +611,7 @@ private fun EmployeeProfileCard(
                                     color = HomePalette.teal,
                                     fontSize = 10.sp, // TWEAK
                                     fontWeight = FontWeight.SemiBold,
-                                    fontSpacing = 1.sp
+                                    letterSpacing =  1.sp
                                 )
                             }
                             Spacer(Modifier.height(4.dp))
