@@ -6,6 +6,7 @@ import com.example.myapplication.SupabaseModule
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.ZoneOffset
 
 private const val TAG_REPO = "SupabaseRepository"
@@ -143,8 +144,8 @@ class SupabaseRepository {
 
     suspend fun fetchActivityDates(userId: String, year: Int, month: Int): List<LocalDate> {
         Log.d(TAG_REPO, "fetchActivityDates — userId=$userId year=$year month=$month")
-        val start = LocalDate.of(year, month, 1).atStartOfDay(ZoneOffset.UTC).toInstant().toString()
-        val end = LocalDate.of(year, month, 1).plusMonths(1).atStartOfDay(ZoneOffset.UTC).toInstant().toString()
+        val start = LocalDate.of(year, month, 1).atStartOfDay(ZoneId.systemDefault()).toInstant().toString()
+        val end = LocalDate.of(year, month, 1).plusMonths(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toString()
         val rows = boxesTable
             .select(Columns.list("id", "created_at")) {
                 filter {
@@ -155,14 +156,14 @@ class SupabaseRepository {
             }
             .decodeList<SupabaseBoxActivityRow>()
         return rows.map {
-            java.time.Instant.parse(it.createdAt).atZone(ZoneOffset.UTC).toLocalDate()
+            java.time.Instant.parse(it.createdAt).atZone(ZoneId.systemDefault()).toLocalDate()
         }.distinct()
     }
 
     suspend fun fetchDayStats(userId: String, date: LocalDate): DayStats {
         Log.d(TAG_REPO, "fetchDayStats — userId=$userId date=$date")
-        val start = date.atStartOfDay(ZoneOffset.UTC).toInstant().toString()
-        val end = date.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().toString()
+        val start = date.atStartOfDay(ZoneId.systemDefault()).toInstant().toString()
+        val end = date.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toString()
         val boxes = boxesTable
             .select(Columns.list("id", "created_at")) {
                 filter {

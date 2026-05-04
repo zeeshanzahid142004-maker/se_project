@@ -130,8 +130,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     var useFrontCamera      by remember { mutableStateOf(false) }
     var scanFlashActive     by remember { mutableStateOf(false) }
     var frameProjection     by remember { mutableStateOf<FrameProjection?>(null) }
-    val temporalTracks      = remember { mutableStateListOf<TrackedDetection>() }
-    val temporalCooldownMap = remember { mutableStateMapOf<CooldownKey, Long>() }
     val isScanningRef       = remember { AtomicBoolean(true) }
     val hasNavigatedRef     = remember { AtomicBoolean(false) }
 

@@ -32,6 +32,7 @@ class YoloDetector(context: Context) {
     private var currentLabel: String? = null  // label currently being tracked
     private var lastSeenMs:   Long    = 0L    // last time a detection fired
     private var registered:   Boolean = false // has this presentation been counted
+    var justRegistered: Boolean = false       // true only on the frame registration fires
 
     companion object {
         private const val ABSENCE_GRACE_MS = 1500L // ms of no detection before reset
@@ -80,6 +81,7 @@ class YoloDetector(context: Context) {
         }
 
         return synchronized(sessionLock) {
+            justRegistered = false
             val resized     = Bitmap.createScaledBitmap(bitmap, INPUT_SIZE, INPUT_SIZE, true)
             val inputBuf    = bitmapToFloatBuffer(resized)
             val shape       = longArrayOf(1, 3, INPUT_SIZE.toLong(), INPUT_SIZE.toLong())
@@ -135,6 +137,7 @@ class YoloDetector(context: Context) {
                     // New object or different object — register it
                     currentLabel = topBox.label
                     registered   = true
+                    justRegistered = true
                     Log.e("YOLO_DEBUG", "NEW detection: ${topBox.label}@${"%.2f".format(topBox.confidence)}")
                 } else {
                     // Same object still in frame — show outline but don't re-register

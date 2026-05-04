@@ -7,8 +7,6 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -45,8 +43,6 @@ fun CameraPreview(
     val lifecycleOwner = LocalLifecycleOwner.current
 
     val previewViewRef     = remember { mutableStateOf<PreviewView?>(null) }
-    val temporalTracks     = remember { mutableStateListOf<TrackedDetection>() }
-    val temporalCooldownMap= remember { mutableStateMapOf<CooldownKey, Long>() }
     var lastInferenceMs    by remember { mutableStateOf(0L) }
 
     var cameraProviderRef  by remember { mutableStateOf<ProcessCameraProvider?>(null) }
@@ -152,26 +148,16 @@ fun CameraPreview(
                                             val cropped   = android.graphics.Bitmap.createBitmap(rotated, cropLeft, cropTop, safeCropW, safeCropH)
 
                                             try {
-                                                val boxes = detectorProvider()?.detectBoxes(cropped) ?: emptyList()
+                                             val boxes = currentDetector.detectBoxes(cropped)
+                                                val wasJustRegistered = currentDetector.justRegistered
+                                                currentDetector.justRegistered = false
                                                 mainExecutor.execute {
                                                     if (!isScanningRef.get()) {
                                                         onBoxesDetected(emptyList())
                                                         onFrameProjection(null)
-                                                        temporalTracks.clear()
-                                                        temporalCooldownMap.clear()
                                                         return@execute
                                                     }
-                                                    val spatial  = applySameLabelNms(boxes, 0.50f)
-                                                    val temporal = applyTemporalDebounce(
-                                                        boxes        = spatial,
-                                                        tracks       = temporalTracks,
-                                                        cooldownMap  = temporalCooldownMap,
-                                                        nowMs        = System.currentTimeMillis(),
-                                                        iouThreshold = 0.50f,
-                                                        cooldownMs   = 4000L,
-                                                        staleTrackMs = 8000L
-                                                    )
-                                                    onBoxesDetected(temporal.visibleBoxes)
+                                                    onBoxesDetected(boxes)
                                                     onFrameProjection(FrameProjection(
                                                         imageWidth  = imgW,
                                                         imageHeight = imgH,
@@ -182,10 +168,10 @@ fun CameraPreview(
                                                         viewWidth   = viewW,
                                                         viewHeight  = viewH,
                                                         mirrored    = useFrontCamera
-
                                                     ))
-                                                    if (temporal.newlyRegistered.isNotEmpty())
-                                                        onNewItems(temporal.newlyRegistered)
+                                                    if (boxes.isNotEmpty() && wasJustRegistered) {
+                                                        onNewItems(boxes)
+                                                    }
                                                 }
                                             } finally {
                                                 cropped.recycle(); rotated.recycle(); full.recycle()
