@@ -26,13 +26,15 @@ data class DetectionBox(
 class YoloDetector(context: Context) {
     private val env         = OrtEnvironment.getEnvironment()
     private val session: OrtSession
-    private val lastDetectedMs = mutableMapOf<String, Long>()  // ← here
-    private val isRunning      = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val isRunning   = java.util.concurrent.atomic.AtomicBoolean(false)
 
-
+    // Presence-based tracking state (replaces lastDetectedMs cooldown map)
+    private var currentLabel: String? = null  // label currently being tracked
+    private var lastSeenMs:   Long    = 0L    // last time a detection fired
+    private var registered:   Boolean = false // has this presentation been counted
 
     companion object {
-        private const val DETECTION_COOLDOWN_MS = 4000L         // ← here
+        private const val ABSENCE_GRACE_MS = 1500L // ms of no detection before reset
     }
 
     private fun nms(boxes: List<DetectionBox>, iouThreshold: Float = 0.45f): List<DetectionBox> {
@@ -113,23 +115,33 @@ class YoloDetector(context: Context) {
 
                 val nmsResult = nms(detections)
 
-// Log ALL detections before cooldown so we can see confidence values
-                nmsResult.forEach { box ->
-                    Log.e("YOLO_DEBUG", "PRE-COOLDOWN: ${box.label}@${"%.3f".format(box.confidence)}")
+                if (nmsResult.isEmpty()) {
+                    // Nothing detected this frame — check if grace period expired
+                    val now = System.currentTimeMillis()
+                    if (currentLabel != null && now - lastSeenMs > ABSENCE_GRACE_MS) {
+                        // Object gone long enough — reset ready for next scan
+                        currentLabel = null
+                        registered   = false
+                        Log.e("YOLO_DEBUG", "Reset — ready for next object")
+                    }
+                    return@synchronized emptyList()
                 }
 
-                val now = System.currentTimeMillis()
-                val filtered = nmsResult.filter { box ->
-                    val last = lastDetectedMs[box.label] ?: 0L
-                    if (now - last >= DETECTION_COOLDOWN_MS) {
-                        lastDetectedMs[box.label] = now; true
-                    } else {
-                        Log.e("YOLO_DEBUG", "COOLDOWN active for ${box.label} — ${(now - last)}ms elapsed")
-                        false
-                    }
+                val topBox = nmsResult.first()
+                val now    = System.currentTimeMillis()
+                lastSeenMs = now
+
+                if (!registered || currentLabel != topBox.label) {
+                    // New object or different object — register it
+                    currentLabel = topBox.label
+                    registered   = true
+                    Log.e("YOLO_DEBUG", "NEW detection: ${topBox.label}@${"%.2f".format(topBox.confidence)}")
+                } else {
+                    // Same object still in frame — show outline but don't re-register
+                    Log.e("YOLO_DEBUG", "TRACKING: ${topBox.label} still in frame")
                 }
-                Log.e("YOLO_DEBUG", "After cooldown: ${filtered.map { "${it.label}@${"%.2f".format(it.confidence)}" }}")
-                filtered
+                // Always return box so overlay stays visible regardless of registration state
+                listOf(topBox)
             } catch (e: Exception) {
                 Log.e("YOLO_DEBUG", "Inference failed: ${e.message}", e)
                 emptyList()
