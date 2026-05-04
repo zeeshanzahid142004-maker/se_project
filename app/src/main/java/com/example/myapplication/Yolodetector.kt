@@ -136,12 +136,12 @@ class YoloDetector(context: Context) {
                     currentLabel = topBox.label
                     registered   = true
                     Log.e("YOLO_DEBUG", "NEW detection: ${topBox.label}@${"%.2f".format(topBox.confidence)}")
-                    listOf(topBox) // triggers newlyRegistered in CameraPreview
                 } else {
                     // Same object still in frame — show outline but don't re-register
                     Log.e("YOLO_DEBUG", "TRACKING: ${topBox.label} still in frame")
-                    listOf(topBox)
                 }
+                // Always return box so overlay stays visible regardless of registration state
+                listOf(topBox)
             } catch (e: Exception) {
                 Log.e("YOLO_DEBUG", "Inference failed: ${e.message}", e)
                 emptyList()
