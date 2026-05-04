@@ -6,6 +6,7 @@ import com.example.myapplication.SupabaseModule
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import java.time.LocalDate
+import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
 
@@ -156,7 +157,9 @@ class SupabaseRepository {
             }
             .decodeList<SupabaseBoxActivityRow>()
         return rows.map {
-            java.time.Instant.parse(it.createdAt).atZone(ZoneId.systemDefault()).toLocalDate()
+            OffsetDateTime.parse(it.createdAt)
+                .atZoneSameInstant(ZoneId.systemDefault())
+                .toLocalDate()
         }.distinct()
     }
 
