@@ -195,8 +195,7 @@ fun FullCalendarSheet(
                                         text = if (isValid) "$dayNum" else "",
                                         color = when {
                                             !isValid -> Color.Transparent
-                                            isToday -> Color(0xFF2DD4BF)
-                                            isActive -> Color(0xFF2DD4BF)
+                                            isToday || isActive -> Color(0xFF2DD4BF)
                                             else -> Color(0xFF8B949E)
                                         },
                                         fontSize = 13.sp, // TWEAK: day number size

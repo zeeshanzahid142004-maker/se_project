@@ -149,6 +149,8 @@ fun CameraPreview(
 
                                             try {
                                              val boxes = currentDetector.detectBoxes(cropped)
+                                                val wasJustRegistered = currentDetector.justRegistered
+                                                currentDetector.justRegistered = false
                                                 mainExecutor.execute {
                                                     if (!isScanningRef.get()) {
                                                         onBoxesDetected(emptyList())
@@ -167,10 +169,9 @@ fun CameraPreview(
                                                         viewHeight  = viewH,
                                                         mirrored    = useFrontCamera
                                                     ))
-                                                    if (boxes.isNotEmpty() && currentDetector.justRegistered) {
+                                                    if (boxes.isNotEmpty() && wasJustRegistered) {
                                                         onNewItems(boxes)
                                                     }
-                                                    currentDetector.justRegistered = false
                                                 }
                                             } finally {
                                                 cropped.recycle(); rotated.recycle(); full.recycle()
