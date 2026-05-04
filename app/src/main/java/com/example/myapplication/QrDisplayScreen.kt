@@ -42,6 +42,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
+import java.time.ZoneId
 import java.util.Date
 import java.util.Locale
 import android.content.Intent
@@ -219,7 +220,7 @@ private fun parseSupabaseTimestamp(s: String): Long {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             java.time.Instant.parse(
                 s.replace(Regex("\\+00:00$"), "Z")
-            ).toEpochMilli()
+            ).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
         } else {
             @Suppress("SimpleDateFormat")
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US).parse(s)?.time ?: 0L

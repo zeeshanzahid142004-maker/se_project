@@ -184,7 +184,6 @@ fun FullCalendarSheet(
                                         )
                                         .background(
                                             when {
-                                                isToday -> Color(0xFF2DD4BF).copy(alpha = 0.12f) // TWEAK: today cell bg alpha
                                                 isActive -> Color(0xFF2DD4BF).copy(alpha = 0.06f) // TWEAK: active cell bg alpha
                                                 else -> Color.Transparent
                                             }
@@ -196,7 +195,7 @@ fun FullCalendarSheet(
                                         text = if (isValid) "$dayNum" else "",
                                         color = when {
                                             !isValid -> Color.Transparent
-                                            isToday -> Color(0xFFF0F6FC)
+                                            isToday -> Color(0xFF2DD4BF)
                                             isActive -> Color(0xFF2DD4BF)
                                             else -> Color(0xFF8B949E)
                                         },
