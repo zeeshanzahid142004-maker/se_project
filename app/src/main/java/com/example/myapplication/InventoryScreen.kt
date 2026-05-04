@@ -430,7 +430,7 @@ fun InventoryScreen(navController: NavController) {
                                                     isToday || isActive -> Color(0xFF2DD4BF)
                                                     else -> Color(0xFF8B949E)
                                                 },
-                                                fontSize = 13.sp,
+                                                fontSize = if (isToday) 18.sp else 13.sp,
                                                 fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal
                                             )
                                             Spacer(Modifier.height(3.dp))
@@ -533,16 +533,6 @@ fun InventoryScreen(navController: NavController) {
         }
     )
 
-    if (showFullCalendar) {
-        FullCalendarSheet(
-            activityDates = activeDateSet,
-            onDaySelected = { day ->
-                selectedDay = day
-                showFullCalendar = false
-            },
-            onDismiss = { showFullCalendar = false }
-        )
-    }
 }
 
 @Composable
@@ -795,7 +785,10 @@ private fun WeekStrip(
     Spacer(Modifier.height(6.dp))
 
     // Day cells
-    Row(modifier = Modifier.fillMaxWidth()) {
+    Row(
+        modifier = Modifier.height(32.dp), // Force enough height for the 25.sp text
+        horizontalArrangement = Arrangement.Center
+        ) {
         currentWeekDays.forEach { date ->
             val isToday  = date == today
             val isActive = activeDates.contains(date)
@@ -803,6 +796,11 @@ private fun WeekStrip(
                 isToday  -> HomePalette.white
                 isActive -> HomePalette.teal
                 else     -> HomePalette.muted
+            }
+            val textSize = when {
+                isToday  -> 25.sp
+
+                else     -> 14.sp
             }
             Box(
                 modifier = Modifier
@@ -817,7 +815,7 @@ private fun WeekStrip(
                     Text(
                         text = date.dayOfMonth.toString(),
                         color = textColor,
-                        fontSize = 14.sp, // TWEAK
+                        fontSize = textSize, // TWEAK
                         fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal
                     )
                     Spacer(Modifier.height(4.dp))

@@ -248,7 +248,9 @@ fun SignInScreen(navController: NavController) {
                     withStyle(SpanStyle(color = Color(0xFF2DD4BF), fontWeight = FontWeight.Bold)) { append("BoxAI") }
                 },
                 fontSize = 32.sp, // TWEAK: name size
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.5.sp // TWEAK: name spacing
+
             )
             Spacer(Modifier.height(4.dp))
             Text(
