@@ -624,7 +624,7 @@ private fun EmployeeProfileCard(
                                             .width(40.dp)
                                             .height(22.dp)
                                             .clip(RoundedCornerShape(4.dp))
-                                            .background(rememberShimmerBrush())
+                                            .shimmerEffect()
                                     )
                                 } else {
                                     Text(
@@ -658,7 +658,7 @@ private fun EmployeeProfileCard(
                                             .width(40.dp)
                                             .height(22.dp)
                                             .clip(RoundedCornerShape(4.dp))
-                                            .background(rememberShimmerBrush())
+                                            .shimmerEffect()
                                     )
                                 } else {
                                     Text(
@@ -836,7 +836,6 @@ private fun WeekStrip(
 
 @Composable
 private fun CalendarShimmer() {
-    val brush = rememberShimmerBrush()
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -847,7 +846,7 @@ private fun CalendarShimmer() {
                     .weight(1f)
                     .height(36.dp)
                     .clip(RoundedCornerShape(6.dp))
-                    .background(brush)
+                    .shimmerEffect()
             )
         }
     }
@@ -855,34 +854,15 @@ private fun CalendarShimmer() {
 
 @Composable
 private fun CardShimmer(modifier: Modifier) {
-    val brush = rememberShimmerBrush()
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
-            .background(brush)
+            .shimmerEffect()
             .border(1.dp, HomePalette.border, RoundedCornerShape(16.dp))
             .height(120.dp)
     )
 }
 
-@Composable
-private fun rememberShimmerBrush(): Brush {
-    val transition = rememberInfiniteTransition(label = "shimmerHome")
-    val x by transition.animateFloat(
-        initialValue = -500f,
-        targetValue = 900f,
-        animationSpec = infiniteRepeatable(
-            tween(2200, easing = LinearEasing),
-            RepeatMode.Restart
-        ),
-        label = "shimmerHomeX"
-    )
-    return Brush.linearGradient(
-        colors = listOf(HomePalette.shimmerA, HomePalette.shimmerB, HomePalette.shimmerA),
-        start = Offset(x, 0f),
-        end = Offset(x + 500f, 200f)
-    )
-}
 
 @Composable
 private fun DayStatsDialog(
