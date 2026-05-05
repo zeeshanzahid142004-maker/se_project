@@ -496,7 +496,28 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             enter   = slideInVertically(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow), initialOffsetY = { it }) + fadeIn(tween(220)),
             exit    = slideOutVertically(animationSpec = tween(280, easing = FastOutSlowInEasing), targetOffsetY = { it }) + fadeOut(tween(220, easing = FastOutSlowInEasing))
         ) {
-            ComplaintSheet(onDismiss = { showComplaintSheet = false; isScanningRef.set(true) })
+            ComplaintSheet(
+                    onDismiss = { showComplaintSheet = false; isScanningRef.set(true) },
+                    onSubmitReport = { reason, notes ->
+                        val userId = SupabaseModule.client.auth.currentUserOrNull()?.id
+                        if (userId != null) {
+                            scope.launch(Dispatchers.IO) {
+                                try {
+                                    supabaseRepo.submitManagerReport(userId, reason, notes)
+                                    Log.d(TAG, "Report submitted successfully")
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Report submission failed: ${e.message}", e)
+                                    // Non-blocking — worker already sees success state
+                                    // Report failure is logged but not surfaced to UI
+                                    // since the complaint is about physical item condition
+                                    // and the visual feedback already completed
+                                }
+                            }
+                        } else {
+                            Log.w(TAG, "Report not submitted — user not authenticated")
+                        }
+                    }
+                )
         }
 
         // ── Save-error dialog ─────────────────────────────────────────────────
@@ -699,7 +720,7 @@ private fun SmallQtyButton(text: String, active: Boolean = false, onClick: () ->
 // ── ComplaintSheet ────────────────────────────────────────────────────────────
 
 @Composable
-fun ComplaintSheet(onDismiss: () -> Unit) {
+fun ComplaintSheet(onDismiss: () -> Unit, onSubmitReport: (reason: String, notes: String) -> Unit) {
     val reasons   = listOf("Item damaged", "Wrong item", "Torn / worn out", "Missing label", "Other")
     var selected  by remember { mutableStateOf<String?>(null) }
     var notes     by remember { mutableStateOf("") }
@@ -771,7 +792,7 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
                 )
                 Spacer(Modifier.height(16.dp))
                 Button(
-                    onClick  = { if (selected != null) submitted = true },
+                    onClick  = { if (selected != null) { submitted = true; onSubmitReport(selected!!, notes) } },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape    = RoundedCornerShape(12.dp),
                     colors   = ButtonDefaults.buttonColors(containerColor = orangeN, disabledContainerColor = orangeN.copy(alpha = 0.3f)),
