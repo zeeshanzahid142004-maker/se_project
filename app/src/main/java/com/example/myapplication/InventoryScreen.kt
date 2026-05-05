@@ -119,8 +119,6 @@ object HomePalette {
     val white = Color(0xFFF0F6FC)
     val muted = Color(0xFF8B949E)
     val border = Color(0xFF30363D)
-    val shimmerA = Color(0xFF1C2333)
-    val shimmerB = Color(0xFF232D3F)
 }
 
 private const val TAG_INV = "InventoryScreen"
