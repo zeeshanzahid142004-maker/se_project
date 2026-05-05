@@ -180,13 +180,12 @@ fun SignInScreen(navController: NavController) {
             if (accessAllowed.isFailure) {
                 val exactError = accessAllowed.exceptionOrNull()?.message ?: "Unknown DB error"
                 Log.e(TAG_AUTH, "Access check failed: $exactError", accessAllowed.exceptionOrNull())
-                // SHOW THE EXACT DATABASE ERROR ON SCREEN
-                errorMessage = "DB Error: $exactError"
+                errorMessage = friendlyError(accessAllowed.exceptionOrNull() ?: Exception(exactError))
                 isLoading = false
                 return@launch
             }
             if (accessAllowed.getOrDefault(false).not()) {
-                errorMessage = "Access denied. Email not found in warehouse_users."
+                errorMessage = "Access denied. Contact your administrator."
                 isLoading = false
                 return@launch
             }
@@ -201,8 +200,7 @@ fun SignInScreen(navController: NavController) {
             if (signInResult.isFailure) {
                 val exactError = signInResult.exceptionOrNull()?.message ?: "Unknown Auth error"
                 Log.e(TAG_AUTH, "Sign-in failed: $exactError", signInResult.exceptionOrNull())
-                // SHOW THE EXACT AUTH ERROR ON SCREEN
-                errorMessage = "Auth Error: $exactError"
+                errorMessage = friendlyError(signInResult.exceptionOrNull() ?: Exception(exactError))
                 isLoading = false
                 return@launch
             }
