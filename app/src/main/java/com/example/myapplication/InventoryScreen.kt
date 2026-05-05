@@ -456,7 +456,7 @@ private fun EmployeeProfileCard(
     statsLoading: Boolean
 ) {
     val shape = RoundedCornerShape(16.dp)
-    Box(modifier = modifier.height(130.dp)) {
+    Box(modifier = modifier) {
         if (loading) {
             CardShimmer()
             return@Box
@@ -499,7 +499,7 @@ private fun EmployeeProfileCard(
                                 fontSize = 17.sp, // TWEAK
                                 fontWeight = FontWeight.Bold
                             )
-                            Spacer(Modifier.height(4.dp))
+                            Spacer(Modifier.height(6.dp))
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(20.dp))
@@ -515,7 +515,7 @@ private fun EmployeeProfileCard(
                                     letterSpacing =  1.sp
                                 )
                             }
-                            Spacer(Modifier.height(4.dp))
+                            Spacer(Modifier.height(6.dp))
                             Text(
                                 text = if (profile.email.isBlank()) "Email not available" else profile.email,
                                 color = HomePalette.muted,
@@ -767,7 +767,8 @@ private fun CalendarShimmer() {
 private fun CardShimmer() {
     Box(
         modifier = Modifier
-            .fillMaxSize()
+            .fillMaxWidth()
+            .height(130.dp)
             .clip(RoundedCornerShape(16.dp))
             .shimmerEffect()
             .border(1.dp, HomePalette.border, RoundedCornerShape(16.dp))
