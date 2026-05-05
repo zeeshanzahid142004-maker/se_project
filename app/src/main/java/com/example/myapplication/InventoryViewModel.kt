@@ -122,6 +122,27 @@ class InventoryViewModel(
     fun onDayDismiss() {
         _uiState.update { it.copy(selectedDay = null, dayStats = null, dayStatsLoading = false) }
     }
+
+    fun refreshStatsSilently() {
+        val id = userId ?: return
+        viewModelScope.launch {
+            try {
+                val dates = withContext(Dispatchers.IO) {
+                    repository.fetchActivityDates(id, currentMonth.year, currentMonth.monthValue)
+                }
+                _uiState.update { it.copy(activityDates = dates) }
+            } catch (e: Exception) {
+                Log.e(TAG_INVENTORY_VM, "Silent activity dates refresh failed: ${e.message}", e)
+            }
+
+            try {
+                val stats = withContext(Dispatchers.IO) { repository.fetchTotalStats(id) }
+                _uiState.update { it.copy(totalStats = stats) }
+            } catch (e: Exception) {
+                Log.e(TAG_INVENTORY_VM, "Silent stats refresh failed: ${e.message}", e)
+            }
+        }
+    }
 }
 
 class BoxViewModel(
