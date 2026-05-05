@@ -23,7 +23,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -637,31 +636,11 @@ private fun QrDisplayContent(
 // ── Shimmer helpers ───────────────────────────────────────────────────────────
 
 @Composable
-private fun shimmerBrush(): Brush {
-    val transition = rememberInfiniteTransition(label = "shimmerQ")
-    val x by transition.animateFloat(
-        initialValue  = -600f,
-        targetValue   =  1400f,
-        animationSpec = infiniteRepeatable(
-            tween(2200, easing = LinearEasing),
-            RepeatMode.Restart
-        ),
-        label = "shimmerXQ"
-    )
-    return Brush.linearGradient(
-        colors = listOf(Color(0xFF1C2333), Color(0xFF232D3F), Color(0xFF1C2333)),
-        start  = Offset(x, 0f),
-        end = Offset(x + 300f, 150f)
-    )
-}
-
-@Composable
 private fun ShimmerBox(modifier: Modifier, cornerRadius: Int = 12) {
-    val brush = shimmerBrush()
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(cornerRadius.dp))
-            .background(brush)
+            .shimmerEffect()
     )
 }
 

@@ -119,8 +119,6 @@ object HomePalette {
     val white = Color(0xFFF0F6FC)
     val muted = Color(0xFF8B949E)
     val border = Color(0xFF30363D)
-    val shimmerA = Color(0xFF1C2333)
-    val shimmerB = Color(0xFF232D3F)
 }
 
 private const val TAG_INV = "InventoryScreen"
@@ -335,7 +333,7 @@ fun InventoryScreen(navController: NavController) {
                         val weeks = ceil(totalCells / 7.0).toInt()
 
                         if (activityLoading) {
-                            repeat(5) {
+                            repeat(weeks) {
                                 Row(modifier = Modifier.fillMaxWidth()) {
                                     repeat(7) {
                                         Box(
@@ -344,7 +342,7 @@ fun InventoryScreen(navController: NavController) {
                                                 .padding(3.dp)
                                                 .height(32.dp)
                                                 .clip(RoundedCornerShape(6.dp))
-                                                .background(Color(0xFF1C2333))
+                                                .shimmerEffect()
                                         )
                                     }
                                 }
@@ -545,11 +543,11 @@ private fun EmployeeProfileCard(
     statsLoading: Boolean
 ) {
     val shape = RoundedCornerShape(16.dp)
-    if (loading) {
-        CardShimmer(modifier = modifier)
-        return
-    }
-    Box(modifier = modifier) {
+    Box(modifier = modifier.height(130.dp)) {
+        if (loading) {
+            CardShimmer()
+            return@Box
+        }
         Box(
             modifier = Modifier.shadow(
                 elevation    = 20.dp,                             // TWEAK: profile card shadow depth
@@ -853,13 +851,13 @@ private fun CalendarShimmer() {
 }
 
 @Composable
-private fun CardShimmer(modifier: Modifier) {
+private fun CardShimmer() {
     Box(
-        modifier = modifier
+        modifier = Modifier
+            .fillMaxSize()
             .clip(RoundedCornerShape(16.dp))
             .shimmerEffect()
             .border(1.dp, HomePalette.border, RoundedCornerShape(16.dp))
-            .height(120.dp)
     )
 }
 
