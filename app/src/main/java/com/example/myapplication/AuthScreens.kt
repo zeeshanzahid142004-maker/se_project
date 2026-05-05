@@ -234,7 +234,7 @@ fun SignInScreen(navController: NavController) {
                 Image(
                     painter = painterResource(R.drawable.ic_launcher_foreground),
                     contentDescription = "App logo",
-                    modifier = Modifier.size(52.dp) // TWEAK: foreground icon size inside box
+                    modifier = Modifier.size(200.dp) // TWEAK: foreground icon size inside box
                 )
             }
 
