@@ -1,5 +1,4 @@
 package com.example.myapplication
-import android.util.Log
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
@@ -40,19 +39,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.toUpperCase
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.myapplication.data.DayStats
-import com.example.myapplication.data.SupabaseRepository
 import com.example.myapplication.data.TotalStats
 import com.example.myapplication.data.WarehouseUser
 import com.example.myapplication.ui.theme.SB
-import io.github.jan.supabase.auth.auth
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -121,86 +118,14 @@ object HomePalette {
     val border = Color(0xFF30363D)
 }
 
-private const val TAG_INV = "InventoryScreen"
 
 @Composable
-fun InventoryScreen(navController: NavController) {
-    val scope = rememberCoroutineScope()
-    val supabaseRepository = remember { SupabaseRepository() }
-    val currentMonth = remember { YearMonth.now() }
+fun InventoryScreen(navController: NavController, viewModel: InventoryViewModel = viewModel()) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val currentMonth = remember { viewModel.currentMonth }
     val today = remember { LocalDate.now() }
 
-    var currentUserId by remember { mutableStateOf<String?>(null) }
-    var profileLoading by remember { mutableStateOf(true) }
-    var profileMessage by remember { mutableStateOf<String?>(null) }
-    var profile by remember { mutableStateOf<WarehouseUser?>(null) }
-
-    var activityLoading by remember { mutableStateOf(true) }
-    var activityDates by remember { mutableStateOf<List<LocalDate>>(emptyList()) }
-
-    var statsLoading by remember { mutableStateOf(true) }
-    var totalStats by remember { mutableStateOf<TotalStats?>(null) }
-
-    val activeDateSet = remember(activityDates) { activityDates.toSet() }
-
-    var selectedDay by remember { mutableStateOf<LocalDate?>(null) }
-    var dayStatsLoading by remember { mutableStateOf(false) }
-    var dayStats by remember { mutableStateOf<DayStats?>(null) }
-    var showFullCalendar by remember { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        currentUserId = SupabaseModule.client.auth.currentUserOrNull()?.id
-    }
-
-    LaunchedEffect(currentUserId) {
-        val userId = currentUserId
-        if (userId == null) {
-            profileLoading = false
-            profileMessage = "No employee signed in"
-            activityLoading = false
-            statsLoading = false
-            activityDates = emptyList()
-            totalStats = TotalStats(0, 0)
-            return@LaunchedEffect
-        }
-
-        profileLoading = true
-        statsLoading = true
-        activityLoading = true
-        profileMessage = null
-
-        try {
-            profile = withContext(Dispatchers.IO) { supabaseRepository.fetchEmployeeProfile(userId) }
-            if (profile == null) {
-                profileMessage = "Employee record not found"
-            }
-        } catch (e: Exception) {
-            Log.e(TAG_INV, "Employee profile load failed: ${e.message}", e)
-            profileMessage = "Unable to load employee profile"
-        } finally {
-            profileLoading = false
-        }
-
-        try {
-            activityDates = withContext(Dispatchers.IO) {
-                supabaseRepository.fetchActivityDates(userId, currentMonth.year, currentMonth.monthValue)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG_INV, "Activity dates load failed: ${e.message}", e)
-            activityDates = emptyList()
-        } finally {
-            activityLoading = false
-        }
-
-        try {
-            totalStats = withContext(Dispatchers.IO) { supabaseRepository.fetchTotalStats(userId) }
-        } catch (e: Exception) {
-            Log.e(TAG_INV, "Total stats load failed: ${e.message}", e)
-            totalStats = TotalStats(0, 0)
-        } finally {
-            statsLoading = false
-        }
-    }
+    val activeDateSet = remember(uiState.activityDates) { uiState.activityDates.toSet() }
 
     Box(
         modifier = Modifier
@@ -236,11 +161,11 @@ fun InventoryScreen(navController: NavController) {
             }
             EmployeeProfileCard(
                 modifier = Modifier.fillMaxWidth(),
-                loading = profileLoading,
-                profile = profile,
-                message = profileMessage,
-                totalStats = totalStats,
-                statsLoading = statsLoading
+                loading = uiState.profileLoading,
+                profile = uiState.profile,
+                message = uiState.profileMessage,
+                totalStats = uiState.totalStats,
+                statsLoading = uiState.statsLoading
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -332,7 +257,7 @@ fun InventoryScreen(navController: NavController) {
                         val totalCells = firstDayOffset + daysInMonth
                         val weeks = ceil(totalCells / 7.0).toInt()
 
-                        if (activityLoading) {
+                        if (uiState.activityLoading) {
                             repeat(weeks) {
                                 Row(modifier = Modifier.fillMaxWidth()) {
                                     repeat(7) {
@@ -377,37 +302,8 @@ fun InventoryScreen(navController: NavController) {
                                                     if (localDate != null)
                                                         Modifier.clickable {
                                                             if (localDate != null) {
-                                                                // reuse existing onDayClick logic
-                                                                selectedDay = localDate
-                                                                val userId = currentUserId
-                                                                if (userId == null || localDate !in activeDateSet) {
-                                                                    dayStatsLoading = false
-                                                                    dayStats = DayStats(0, 0)
-                                                                } else {
-                                                                    dayStatsLoading = true
-                                                                    dayStats = null
-                                                                    scope.launch(Dispatchers.IO) {
-                                                                        try {
-                                                                            val stats =
-                                                                                supabaseRepository.fetchDayStats(
-                                                                                    userId,
-                                                                                    localDate
-                                                                                )
-                                                                            withContext(Dispatchers.Main) {
-                                                                                dayStats = stats
-                                                                                dayStatsLoading =
-                                                                                    false
-                                                                            }
-                                                                        } catch (e: Exception) {
-                                                                            withContext(Dispatchers.Main) {
-                                                                                dayStats =
-                                                                                    DayStats(0, 0)
-                                                                                dayStatsLoading =
-                                                                                    false
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
+                                                                // delegate to ViewModel
+                                                                viewModel.onDaySelected(localDate)
                                                             }
                                                         }
                                                     else Modifier
@@ -521,14 +417,10 @@ fun InventoryScreen(navController: NavController) {
     }
 
     DayStatsDialog(
-        selectedDay = selectedDay,
-        loading = dayStatsLoading,
-        stats = dayStats,
-        onDismiss = {
-            selectedDay = null
-            dayStats = null
-            dayStatsLoading = false
-        }
+        selectedDay = uiState.selectedDay,
+        loading = uiState.dayStatsLoading,
+        stats = uiState.dayStats,
+        onDismiss = { viewModel.onDayDismiss() }
     )
 
 }
