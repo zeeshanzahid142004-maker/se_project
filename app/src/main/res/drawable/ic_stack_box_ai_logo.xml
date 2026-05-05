@@ -1,0 +1,72 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="200dp"
+    android:height="200dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+
+    <!-- 1. Plate Drop Shadow -->
+    <path
+        android:fillColor="#80000000"
+        android:pathData="M 12,12 h 76 a 10,10 0 0 1 10,10 v 56 a 10,10 0 0 1 -10,10 h -76 a 10,10 0 0 1 -10,-10 v -56 a 10,10 0 0 1 10,-10 z" />
+
+    <!-- 2. Dark App Background Plate (Matches splash screen) -->
+    <path android:pathData="M 10,10 h 80 a 10,10 0 0 1 10,10 v 60 a 10,10 0 0 1 -10,10 h -80 a 10,10 0 0 1 -10,-10 v -60 a 10,10 0 0 1 10,-10 z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:startX="0" android:startY="0" android:endX="100" android:endY="100" android:type="linear">
+                <item android:color="#12161A" android:offset="0"/>
+                <item android:color="#080A0D" offset="1"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 3. Subtle Plate Border -->
+    <path
+        android:strokeColor="#1A2128"
+        android:strokeWidth="0.5"
+        android:pathData="M 10,10 h 80 a 10,10 0 0 1 10,10 v 60 a 10,10 0 0 1 -10,10 h -80 a 10,10 0 0 1 -10,-10 v -60 a 10,10 0 0 1 10,-10 z" />
+
+    <!-- 4. SB Text Extrusion Base (Deepest Teal) -->
+    <group android:translateX="3" android:translateY="3">
+        <path android:fillColor="#09433E" android:pathData="M 30,26 H 46 V 32 H 36 V 37 H 46 V 54 H 30 V 48 H 40 V 43 H 30 Z M 50,26 H 61 C 66,26 69,28 69,33 C 69,36 66,39 63,40 C 67,41 70,44 70,48 C 70,52 66,54 61,54 H 50 Z M 56,32 V 37 H 60 C 62.5,37 64,36 64,34.5 C 64,33 62.5,32 60,32 Z M 56,43 V 48 H 61 C 63.5,48 65,47 65,45.5 C 65,44 63.5,43 61,43 Z"/>
+    </group>
+
+    <!-- 5. SB Text Extrusion Mid Layer (Deep Teal) -->
+    <group android:translateX="2" android:translateY="2">
+        <path android:fillColor="#0D5C55" android:pathData="M 30,26 H 46 V 32 H 36 V 37 H 46 V 54 H 30 V 48 H 40 V 43 H 30 Z M 50,26 H 61 C 66,26 69,28 69,33 C 69,36 66,39 63,40 C 67,41 70,44 70,48 C 70,52 66,54 61,54 H 50 Z M 56,32 V 37 H 60 C 62.5,37 64,36 64,34.5 C 64,33 62.5,32 60,32 Z M 56,43 V 48 H 61 C 63.5,48 65,47 65,45.5 C 65,44 63.5,43 61,43 Z"/>
+    </group>
+
+    <!-- 6. SB Text Extrusion Top Layer (Bright Teal Edge) -->
+    <group android:translateX="1" android:translateY="1">
+        <path android:fillColor="#117B71" android:pathData="M 30,26 H 46 V 32 H 36 V 37 H 46 V 54 H 30 V 48 H 40 V 43 H 30 Z M 50,26 H 61 C 66,26 69,28 69,33 C 69,36 66,39 63,40 C 67,41 70,44 70,48 C 70,52 66,54 61,54 H 50 Z M 56,32 V 37 H 60 C 62.5,37 64,36 64,34.5 C 64,33 62.5,32 60,32 Z M 56,43 V 48 H 61 C 63.5,48 65,47 65,45.5 C 65,44 63.5,43 61,43 Z"/>
+    </group>
+
+    <!-- 7. SB Front Face (Off-White #F0F6FC) -->
+    <group>
+        <path android:fillColor="#F0F6FC" android:pathData="M 30,26 H 46 V 32 H 36 V 37 H 46 V 54 H 30 V 48 H 40 V 43 H 30 Z M 50,26 H 61 C 66,26 69,28 69,33 C 69,36 66,39 63,40 C 67,41 70,44 70,48 C 70,52 66,54 61,54 H 50 Z M 56,32 V 37 H 60 C 62.5,37 64,36 64,34.5 C 64,33 62.5,32 60,32 Z M 56,43 V 48 H 61 C 63.5,48 65,47 65,45.5 C 65,44 63.5,43 61,43 Z"/>
+    </group>
+
+    <!-- 8. AI Pill Badge (Pushed to absolute bottom right corner) -->
+    <group android:translateX="1" android:translateY="1">
+        <!-- Pill Shadow -->
+        <path
+            android:fillColor="#80000000"
+            android:pathData="M 69,64 h 11 a 6,6 0 0 1 0,12 h -11 a 6,6 0 0 1 0,-12 z" />
+    </group>
+
+    <group>
+        <!-- Pill Container Base -->
+        <path
+            android:fillColor="#091211"
+            android:pathData="M 69,64 h 11 a 6,6 0 0 1 0,12 h -11 a 6,6 0 0 1 0,-12 z" />
+
+        <!-- Subtle Teal Border -->
+        <path android:strokeWidth="0.5" android:strokeColor="#148F84" android:pathData="M 69,64 h 11 a 6,6 0 0 1 0,12 h -11 a 6,6 0 0 1 0,-12 z" />
+
+        <!-- AI Text in Teal (#2DD4BF) -->
+        <path
+            android:fillColor="#2DD4BF"
+            android:pathData="M 70.5,73 V 67 H 75 V 73 H 73.5 V 71 H 72 V 73 Z M 72,68.5 V 69.5 H 73.5 V 68.5 Z M 77,67 H 78.5 V 73 H 77 Z" />
+    </group>
+
+</vector>

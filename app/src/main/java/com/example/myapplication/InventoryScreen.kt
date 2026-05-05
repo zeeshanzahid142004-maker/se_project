@@ -204,7 +204,7 @@ fun InventoryScreen(navController: NavController, viewModel: InventoryViewModel 
                     Text(
                         "ACTIVITY CALENDAR",
                         color = HomePalette.white,
-                        fontSize = 20.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.5.sp
                     )
@@ -355,7 +355,7 @@ fun InventoryScreen(navController: NavController, viewModel: InventoryViewModel 
                                 }
                             }
 
-                            Spacer(Modifier.height(6.dp))
+                            Spacer(Modifier.height(2.dp))
 
                             // Legend
                             Row(
@@ -363,7 +363,7 @@ fun InventoryScreen(navController: NavController, viewModel: InventoryViewModel 
                                 horizontalArrangement = Arrangement.Center,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(Modifier.size(5.dp).background(Color(0xFF2DD4BF), CircleShape))
+                                Box(Modifier.size(7.dp).background(Color(0xFF2DD4BF), CircleShape))
                                 Spacer(Modifier.width(5.dp))
                                 Text("Scan activity", color = Color(0xFF8B949E), fontSize = 10.sp)
                             }
@@ -391,7 +391,7 @@ fun InventoryScreen(navController: NavController, viewModel: InventoryViewModel 
                     Text(
                         "QUICK ACTIONS",
                         color = HomePalette.white,
-                        fontSize = 20.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.5.sp
                     )

@@ -113,7 +113,7 @@ fun LauncherScreen(navController: NavController) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Image(
                 // ✅ Use the foreground vector drawable, which Compose fully supports
-                painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                painter = painterResource(id = R.drawable.ic_stack_box_ai_logo),
                 contentDescription = "App logo",
                 modifier = Modifier.size(88.dp)
             )
