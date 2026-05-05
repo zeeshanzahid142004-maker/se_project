@@ -168,7 +168,7 @@ class BoxViewModel(
                 onFailure = {
                     error->
                     _currentBox.value=null
-                    _errorMessage.value=error.message ?:"Unknown error"
+                    _errorMessage.value = friendlyError(error)
                     println("Scan failed: ${error.message}")
                 }
             )

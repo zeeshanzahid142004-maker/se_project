@@ -181,7 +181,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                     retryAction = { isSaving = true; launchSave(boxName, itemsSnapshot) }
                     saveError = SaveErrorInfo(
                         userMessage      = "Could not save the box locally. Please try again.",
-                        technicalDetails = e.message ?: "Unknown error",
+                        technicalDetails = friendlyError(e),
                         errorCode        = classifyError(e)
                     )
                 }
