@@ -1,6 +1,6 @@
 package com.example.myapplication
 
-fun friendlyError(e: Exception): String {
+fun friendlyError(e: Throwable): String {
     val msg = e.message?.lowercase() ?: ""
     return when {
         msg.contains("unable to resolve") ||
@@ -36,7 +36,3 @@ fun friendlyError(e: Exception): String {
         else -> "Something went wrong. Please try again."
     }
 }
-
-/** Convenience overload for [Throwable] (e.g. from [runCatching]). */
-fun friendlyError(e: Throwable): String =
-    friendlyError(e as? Exception ?: Exception(e.message, e))
