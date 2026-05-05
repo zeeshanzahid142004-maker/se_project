@@ -496,7 +496,27 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
             enter   = slideInVertically(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow), initialOffsetY = { it }) + fadeIn(tween(220)),
             exit    = slideOutVertically(animationSpec = tween(280, easing = FastOutSlowInEasing), targetOffsetY = { it }) + fadeOut(tween(220, easing = FastOutSlowInEasing))
         ) {
-            ComplaintSheet(onDismiss = { showComplaintSheet = false; isScanningRef.set(true) })
+            ComplaintSheet(
+                    onDismiss = { showComplaintSheet = false; isScanningRef.set(true) },
+                    onSubmitReport = { reason, notes ->
+                        val userId = SupabaseModule.client.auth.currentUserOrNull()?.id
+                        if (userId != null) {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    supabaseRepo.submitManagerReport(userId, reason, notes)
+                                }
+                                Log.d(TAG, "Report submitted successfully")
+                                true
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Report submission failed: ${e.message}", e)
+                                false
+                            }
+                        } else {
+                            Log.w(TAG, "Report not submitted — user not authenticated")
+                            false
+                        }
+                    }
+                )
         }
 
         // ── Save-error dialog ─────────────────────────────────────────────────
@@ -699,12 +719,14 @@ private fun SmallQtyButton(text: String, active: Boolean = false, onClick: () ->
 // ── ComplaintSheet ────────────────────────────────────────────────────────────
 
 @Composable
-fun ComplaintSheet(onDismiss: () -> Unit) {
-    val reasons   = listOf("Item damaged", "Wrong item", "Torn / worn out", "Missing label", "Other")
-    var selected  by remember { mutableStateOf<String?>(null) }
-    var notes     by remember { mutableStateOf("") }
-    var submitted by remember { mutableStateOf(false) }
-    var entered   by remember { mutableStateOf(false) }
+fun ComplaintSheet(onDismiss: () -> Unit, onSubmitReport: suspend (reason: String, notes: String) -> Boolean) {
+    val reasons      = listOf("Item damaged", "Wrong item", "Torn / worn out", "Missing label", "Other")
+    var selected     by remember { mutableStateOf<String?>(null) }
+    var notes        by remember { mutableStateOf("") }
+    var submitted    by remember { mutableStateOf(false) }
+    var isSubmitting by remember { mutableStateOf(false) }
+    val sheetScope   = rememberCoroutineScope()
+    var entered      by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { entered = true }
     val scrimAlpha by animateFloatAsState(if (entered) 0.6f else 0f,   tween(280), label = "cScrim")
     val sheetScale by animateFloatAsState(if (entered) 1f  else 0.92f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow), label = "cScale")
@@ -771,15 +793,33 @@ fun ComplaintSheet(onDismiss: () -> Unit) {
                 )
                 Spacer(Modifier.height(16.dp))
                 Button(
-                    onClick  = { if (selected != null) submitted = true },
+                    onClick  = {
+                        if (selected != null) {
+                            sheetScope.launch {
+                                isSubmitting = true
+                                try {
+                                    val success = onSubmitReport(selected!!, notes)
+                                    if (success) submitted = true
+                                } finally {
+                                    isSubmitting = false
+                                }
+                            }
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape    = RoundedCornerShape(12.dp),
                     colors   = ButtonDefaults.buttonColors(containerColor = orangeN, disabledContainerColor = orangeN.copy(alpha = 0.3f)),
-                    enabled  = selected != null
+                    enabled  = selected != null && !isSubmitting
                 ) {
-                    Icon(Icons.Default.Warning, null, tint = Color.White, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Submit Report", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    if (isSubmitting) {
+                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Submitting...", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    } else {
+                        Icon(Icons.Default.Warning, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Submit Report", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
                 Spacer(Modifier.height(10.dp))
                 OutlinedButton(

@@ -9,6 +9,15 @@ import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
+import kotlinx.serialization.Serializable
+
+@Serializable
+private data class SystemAlertInsert(
+    val title    : String,
+    val message  : String,
+    val severity : String,
+    val is_read  : Boolean = false
+)
 
 private const val TAG_REPO = "SupabaseRepository"
 
@@ -191,6 +200,25 @@ class SupabaseRepository {
         val boxIds = boxes.map { it.id }
         val totalItems = fetchItemsCountForBoxes(boxIds)
         return TotalStats(totalBoxes = boxIds.size, totalItems = totalItems)
+    }
+
+    suspend fun submitManagerReport(
+        userId: String,
+        reason: String,
+        notes : String
+    ) {
+        val title   = "Scanner Issue: $reason"
+        val message = buildString {
+            append("Reported by user: $userId\n")
+            append("Reason: $reason\n")
+            if (notes.isNotBlank()) append("Notes: $notes")
+        }
+        val alert = SystemAlertInsert(
+            title    = title,
+            message  = message,
+            severity = "high"
+        )
+        SupabaseModule.client.postgrest["system_alerts"].insert(alert)
     }
 
     private suspend fun fetchItemsCountForBoxes(boxIds: List<Long>): Int {
