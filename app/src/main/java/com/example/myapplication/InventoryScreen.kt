@@ -171,7 +171,7 @@ fun InventoryScreen(navController: NavController, viewModel: InventoryViewModel 
                     Text(
                         "WELCOME BACK,",
                         color = HomePalette.white,
-                        fontSize = 16.sp,
+                        fontSize = 10.sp,
                         letterSpacing = 1.5.sp
                     )
                 }

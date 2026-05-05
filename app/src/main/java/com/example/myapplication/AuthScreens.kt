@@ -120,8 +120,8 @@ fun LauncherScreen(navController: NavController) {
             Spacer(Modifier.height(16.dp))
             Text(
                 text = buildAnnotatedString {
-                    withStyle(SpanStyle(color = authText)) { append("Stack") }
-                    withStyle(SpanStyle(color = authAccent)) { append("BoxAI") }
+                    withStyle(SpanStyle(color = authText)) { append("StackBox") }
+                    withStyle(SpanStyle(color = authAccent)) { append("AI") }
                 },
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Bold

@@ -16,7 +16,8 @@ private data class SystemAlertInsert(
     val title    : String,
     val message  : String,
     val severity : String,
-    val is_read  : Boolean = false
+    val is_read  : Boolean = false,
+    val created_at: String
 )
 
 private const val TAG_REPO = "SupabaseRepository"
@@ -205,22 +206,36 @@ class SupabaseRepository {
     suspend fun submitManagerReport(
         userId: String,
         reason: String,
-        notes : String
+        notes: String,
     ) {
+        // 1. Fetch the user's profile to get their real name
+        val profile = fetchEmployeeProfile(userId)
+
+        // Fallback to the ID just in case the profile fetch fails or the name is blank
+        val reporterName = if (profile != null && profile.fullName.isNotBlank()) {
+            profile.fullName
+        } else {
+            "Unknown User ($userId)"
+        }
+
+        // 2. Build the message with the real name
         val title   = "Scanner Issue: $reason"
         val message = buildString {
-            append("Reported by user: $userId\n")
+            append("Reported by: $reporterName\n")
             append("Reason: $reason\n")
             if (notes.isNotBlank()) append("Notes: $notes")
         }
+
+        // 3. Insert the alert with the exact current UTC timestamp
         val alert = SystemAlertInsert(
-            title    = title,
-            message  = message,
-            severity = "high"
+            title      = title,
+            message    = message,
+            severity   = "warning",
+            created_at = java.time.Instant.now().toString()
         )
+
         SupabaseModule.client.postgrest["system_alerts"].insert(alert)
     }
-
     private suspend fun fetchItemsCountForBoxes(boxIds: List<Long>): Int {
         if (boxIds.isEmpty()) return 0
         val items = itemsTable
