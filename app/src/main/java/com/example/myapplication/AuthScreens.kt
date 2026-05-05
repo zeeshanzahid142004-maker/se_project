@@ -244,8 +244,8 @@ fun SignInScreen(navController: NavController) {
 
             Text(
                 buildAnnotatedString {
-                    withStyle(SpanStyle(color = Color(0xFFF0F6FC))) { append("Stack") }
-                    withStyle(SpanStyle(color = Color(0xFF2DD4BF), fontWeight = FontWeight.Bold)) { append("BoxAI") }
+                    withStyle(SpanStyle(color = Color(0xFFF0F6FC))) { append("StackBox") }
+                    withStyle(SpanStyle(color = Color(0xFF2DD4BF), fontWeight = FontWeight.Bold)) { append("AI") }
                 },
                 fontSize = 32.sp, // TWEAK: name size
                 fontWeight = FontWeight.Bold,
@@ -298,7 +298,7 @@ fun SignInScreen(navController: NavController) {
                                 letterSpacing = 1.5.sp // TWEAK
                             )
                             Text(
-                                " SIGN IN",
+                                " SIGN-IN",
                                 color = Color(0xFF2DD4BF),
                                 fontSize = 22.sp, // TWEAK: title size
                                 fontWeight = FontWeight.Bold,

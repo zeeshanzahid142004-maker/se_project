@@ -12,7 +12,7 @@ private const val INPUT_SIZE     = 640
 private val CLASS_THRESHOLDS = mapOf(
     0 to 0.87f,  // Pants — strict, lots of false positives from furniture
     1 to 0.87f,  // Shirt — strict, cupboards trigger this too
-    2 to 0.80f,  // Shoe  — lenient, model is less confident on shoes
+    2 to 0.90f,  // Shoe  — lenient, model is less confident on shoes
 )
 private const val CONF_THRESHOLD_DEFAULT = 0.82f
 
