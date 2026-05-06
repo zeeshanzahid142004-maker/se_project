@@ -264,7 +264,7 @@ class SupabaseRepository {
                 .insert(SupabaseItemInsert(boxId = null, name = item.label, count = item.count)) {
                     select(Columns.list("id"))
                 }
-                .decodeSingle<SupabaseItemResponse>()
+                .decodeSingle<InsertedItemId>()
         } catch (e: Exception) {
             Log.e(TAG_REPO, "  ✗ item insert for complaint FAILED: ${e.message}", e)
             throw e

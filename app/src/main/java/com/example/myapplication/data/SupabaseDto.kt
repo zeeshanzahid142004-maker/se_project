@@ -73,13 +73,23 @@ data class ComplaintInsert(
 
 /**
  * Row returned when reading an item from Supabase.
+ * Fields other than [id] are given defaults so that a partial response
+ * (e.g. when only `id` is selected) does not cause a MissingFieldException.
  */
 @Serializable
 data class SupabaseItemResponse(
     val id: Long,
-    val name: String,
-    val count: Int
+    val name: String? = null,
+    val count: Int? = null
 )
+
+/**
+ * Lightweight DTO used when only the auto-generated `id` is needed after an
+ * insert (e.g. inside [SupabaseRepository.submitItemComplaint]).
+ * Keeping this separate avoids requiring all other columns to be returned.
+ */
+@Serializable
+data class InsertedItemId(val id: Long)
 
 @Serializable
 data class WarehouseUser(

@@ -3,7 +3,9 @@ import android.util.Log
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.serializer.KotlinXSerializer
 import com.example.myapplication.BuildConfig
+import kotlinx.serialization.json.Json
 
 
 private const val TAG_SB = "SupabaseModule"
@@ -27,6 +29,10 @@ object SupabaseModule {
                 supabaseUrl = url,
                 supabaseKey = BuildConfig.SUPABASE_KEY
             ) {
+                defaultSerializer = KotlinXSerializer(Json {
+                    ignoreUnknownKeys = true
+                    isLenient = true
+                })
                 install(Auth)
                 install(Postgrest)
             }.also { Log.d(TAG_SB, "createSupabaseClient succeeded") }
