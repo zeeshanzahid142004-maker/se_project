@@ -2,7 +2,6 @@ package com.example.myapplication
 
 import android.Manifest
 import android.content.Context
-import android.media.MediaPlayer
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -210,9 +209,6 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         } else {
             @Suppress("DEPRECATION") vibrator.vibrate(longArrayOf(0, 90, 60, 130), -1)
         }
-        try {
-            MediaPlayer.create(context, R.raw.crumble)?.apply { setOnCompletionListener { release() }; start() }
-        } catch (e: Exception) { Log.w(TAG, "Audio feedback failed: ${e.message}") }
         boxScaleAnim.snapTo(1.0f)
         boxScaleAnim.animateTo(0.86f, animationSpec = tween(70, easing = FastOutSlowInEasing))
         boxScaleAnim.animateTo(1.10f, animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow))
