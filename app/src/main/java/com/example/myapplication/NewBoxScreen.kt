@@ -66,6 +66,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val TAG = "NewBoxScreen"
+private const val DEBUG_TAG = "[COMPLAINT_FLOW]"
 private const val MODEL_INPUT_SIZE = 640f
 private val detectionBoxColor = Color.Green
 
@@ -132,6 +133,8 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
     var frameProjection     by remember { mutableStateOf<FrameProjection?>(null) }
     val isScanningRef       = remember { AtomicBoolean(true) }
     val hasNavigatedRef     = remember { AtomicBoolean(false) }
+    var showScanRequiredSheet    by remember { mutableStateOf(false) }
+    var showComplaintSuccessSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(useFrontCamera) { isScanningRef.set(true); cameraReady = false }
 
@@ -417,10 +420,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 .border(1.dp, orangeN.copy(alpha = 0.55f), RoundedCornerShape(20.dp))
                 .clickable(remember { MutableInteractionSource() }, null) {
                     if (detectedItems.isEmpty()) {
-                        saveError = SaveErrorInfo(
-                            title       = "Scan Required",
-                            userMessage = "You need to scan an item first."
-                        )
+                        showScanRequiredSheet = true
                     } else {
                         isScanningRef.set(false); showComplaintSheet = true
                     }
@@ -462,10 +462,7 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 Button(
                     onClick  = {
                         if (detectedItems.isEmpty()) {
-                            saveError = SaveErrorInfo(
-                                title       = "Scan Required",
-                                userMessage = "You need to scan an item first."
-                            )
+                            showScanRequiredSheet = true
                         } else {
                             isScanningRef.set(false); showReviewSheet = true
                         }
@@ -511,26 +508,61 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         ) {
             ComplaintSheet(
                     onDismiss = { showComplaintSheet = false; isScanningRef.set(true) },
+                    onSuccess = {
+                        showComplaintSheet = false
+                        showComplaintSuccessSheet = true
+                    },
                     onSubmitReport = { complaintInfo ->
+                        Log.d(DEBUG_TAG, "onSubmitReport invoked")
                         val userId = SupabaseModule.client.auth.currentUserOrNull()?.id
                         val item   = detectedItems.firstOrNull()
-                        if (userId != null && item != null) {
+                        Log.d(DEBUG_TAG, "validation — userId present=${userId != null}, item=${item?.label}")
+                        if (userId == null || item == null) {
+                            Log.w(DEBUG_TAG, "Aborting: userId null=${userId == null}, item null=${item == null}")
+                            false
+                        } else {
                             try {
+                                Log.d(DEBUG_TAG, "Calling supabaseRepo.submitItemComplaint")
                                 withContext(Dispatchers.IO) {
                                     supabaseRepo.submitItemComplaint(userId, item, complaintInfo)
                                 }
-                                Log.d(TAG, "Complaint submitted successfully")
+                                Log.d(DEBUG_TAG, "supabaseRepo.submitItemComplaint returned — success")
                                 true
                             } catch (e: Exception) {
-                                Log.e(TAG, "Complaint submission failed: ${e.message}", e)
+                                Log.e(DEBUG_TAG, "submitItemComplaint FAILED: ${e.message}", e)
                                 false
                             }
-                        } else {
-                            Log.w(TAG, "Complaint not submitted — user not authenticated or no item scanned")
-                            false
                         }
                     }
                 )
+        }
+
+        // ── Scan-required info sheet ──────────────────────────────────────────
+        AnimatedVisibility(
+            visible = showScanRequiredSheet,
+            enter   = slideInVertically(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow), initialOffsetY = { it }) + fadeIn(tween(220)),
+            exit    = slideOutVertically(animationSpec = tween(280, easing = FastOutSlowInEasing), targetOffsetY = { it }) + fadeOut(tween(220, easing = FastOutSlowInEasing))
+        ) {
+            InfoBottomSheet(
+                title      = "Scan Required",
+                message    = "You need to scan an item before proceeding.",
+                buttonText = "Close",
+                onDismiss  = { showScanRequiredSheet = false }
+            )
+        }
+
+        // ── Complaint success info sheet ──────────────────────────────────────
+        AnimatedVisibility(
+            visible = showComplaintSuccessSheet,
+            enter   = slideInVertically(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow), initialOffsetY = { it }) + fadeIn(tween(220)),
+            exit    = slideOutVertically(animationSpec = tween(280, easing = FastOutSlowInEasing), targetOffsetY = { it }) + fadeOut(tween(220, easing = FastOutSlowInEasing))
+        ) {
+            InfoBottomSheet(
+                title      = "Complaint Submitted",
+                message    = "Your complaint has been successfully logged.",
+                buttonText = "Okay",
+                onDismiss  = { showComplaintSuccessSheet = false; isScanningRef.set(true) }
+            )
         }
 
         // ── Save-error dialog ─────────────────────────────────────────────────
@@ -748,11 +780,14 @@ private fun SmallQtyButton(text: String, active: Boolean = false, onClick: () ->
 // ── ComplaintSheet ────────────────────────────────────────────────────────────
 
 @Composable
-fun ComplaintSheet(onDismiss: () -> Unit, onSubmitReport: suspend (complaintInfo: String) -> Boolean) {
+fun ComplaintSheet(
+    onDismiss: () -> Unit,
+    onSuccess: () -> Unit,
+    onSubmitReport: suspend (complaintInfo: String) -> Boolean,
+) {
     val reasons      = listOf("Item damaged", "Wrong item", "Torn / worn out", "Missing label", "Other")
     var selected     by remember { mutableStateOf<String?>(null) }
     var notes        by remember { mutableStateOf("") }
-    var submitted    by remember { mutableStateOf(false) }
     var isSubmitting by remember { mutableStateOf(false) }
     val sheetScope   = rememberCoroutineScope()
     var entered      by remember { mutableStateOf(false) }
@@ -772,98 +807,94 @@ fun ComplaintSheet(onDismiss: () -> Unit, onSubmitReport: suspend (complaintInfo
                 .padding(horizontal = 24.dp, vertical = 24.dp)
         ) {
             Box(modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 20.dp).width(36.dp).height(4.dp).background(borderN, RoundedCornerShape(2.dp)))
-            if (submitted) {
-                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Box(modifier = Modifier.size(56.dp).background(tealN.copy(alpha = 0.15f), CircleShape).border(1.dp, tealN.copy(alpha = 0.4f), CircleShape), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.CheckCircle, null, tint = tealN, modifier = Modifier.size(28.dp))
-                    }
-                    Text("Report Submitted", color = whiteN, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                    Text("Your complaint has been logged.", color = mutedN, fontSize = 13.sp, textAlign = TextAlign.Center)
-                    Spacer(Modifier.height(8.dp))
-                    Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = redN)) {
-                        Text("Done", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    }
-                }
-            } else {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Warning, null, tint = orangeN, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Report an Issue", color = whiteN, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                }
-                Text("Select the issue type below.", color = mutedN, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 16.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    reasons.forEach { reason ->
-                        val isSelected = selected == reason
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(if (isSelected) orangeN.copy(alpha = 0.12f) else surfAltN)
-                                .border(1.dp, if (isSelected) orangeN.copy(alpha = 0.6f) else borderN, RoundedCornerShape(10.dp))
-                                .clickable(remember { MutableInteractionSource() }, null) { selected = reason }
-                                .padding(horizontal = 14.dp, vertical = 12.dp)
-                        ) {
-                            Box(modifier = Modifier.size(16.dp).border(1.5.dp, if (isSelected) orangeN else mutedN, CircleShape).background(if (isSelected) orangeN else Color.Transparent, CircleShape))
-                            Spacer(Modifier.width(12.dp))
-                            Text(reason, color = if (isSelected) whiteN else mutedN, fontSize = 14.sp, fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal)
-                        }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Warning, null, tint = orangeN, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Report an Issue", color = whiteN, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+            Text("Select the issue type below.", color = mutedN, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 16.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                reasons.forEach { reason ->
+                    val isSelected = selected == reason
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isSelected) orangeN.copy(alpha = 0.12f) else surfAltN)
+                            .border(1.dp, if (isSelected) orangeN.copy(alpha = 0.6f) else borderN, RoundedCornerShape(10.dp))
+                            .clickable(remember { MutableInteractionSource() }, null) { selected = reason }
+                            .padding(horizontal = 14.dp, vertical = 12.dp)
+                    ) {
+                        Box(modifier = Modifier.size(16.dp).border(1.5.dp, if (isSelected) orangeN else mutedN, CircleShape).background(if (isSelected) orangeN else Color.Transparent, CircleShape))
+                        Spacer(Modifier.width(12.dp))
+                        Text(reason, color = if (isSelected) whiteN else mutedN, fontSize = 14.sp, fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal)
                     }
                 }
-                Spacer(Modifier.height(14.dp))
-                OutlinedTextField(
-                    value = notes, onValueChange = { notes = it },
-                    placeholder = { Text("Additional notes (optional)…", color = mutedN, fontSize = 13.sp) },
-                    modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = tealN, unfocusedBorderColor = borderN,
-                        focusedTextColor = whiteN, unfocusedTextColor = whiteN,
-                        cursorColor = tealN, focusedContainerColor = surfAltN, unfocusedContainerColor = surfAltN
-                    ), maxLines = 3
-                )
-                Spacer(Modifier.height(16.dp))
-                Button(
-                    onClick  = {
-                        if (selected != null) {
-                            sheetScope.launch {
-                                isSubmitting = true
-                                try {
-                                    val complaintInfo = buildString {
-                                        append(selected!!)
-                                        if (notes.isNotBlank()) append(": $notes")
-                                    }
-                                    val success = onSubmitReport(complaintInfo)
-                                    if (success) submitted = true
-                                } finally {
-                                    isSubmitting = false
+            }
+            Spacer(Modifier.height(14.dp))
+            OutlinedTextField(
+                value = notes, onValueChange = { notes = it },
+                placeholder = { Text("Additional notes (optional)…", color = mutedN, fontSize = 13.sp) },
+                modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = tealN, unfocusedBorderColor = borderN,
+                    focusedTextColor = whiteN, unfocusedTextColor = whiteN,
+                    cursorColor = tealN, focusedContainerColor = surfAltN, unfocusedContainerColor = surfAltN
+                ), maxLines = 3
+            )
+            Spacer(Modifier.height(16.dp))
+            Button(
+                onClick  = {
+                    if (selected != null) {
+                        Log.d(DEBUG_TAG, "Submit button clicked — selected='$selected'")
+                        sheetScope.launch {
+                            isSubmitting = true
+                            Log.d(DEBUG_TAG, "coroutine started — isSubmitting=true")
+                            try {
+                                val complaintInfo = buildString {
+                                    append(selected!!)
+                                    if (notes.isNotBlank()) append(": $notes")
                                 }
+                                Log.d(DEBUG_TAG, "complaintInfo built (length=${complaintInfo.length})")
+                                val success = onSubmitReport(complaintInfo)
+                                Log.d(DEBUG_TAG, "onSubmitReport returned success=$success")
+                                if (success) {
+                                    Log.d(DEBUG_TAG, "Submission succeeded — calling onSuccess()")
+                                    onSuccess()
+                                }
+                            } catch (e: Exception) {
+                                Log.e(DEBUG_TAG, "Unexpected error in submit coroutine: ${e.message}", e)
+                            } finally {
+                                isSubmitting = false
+                                Log.d(DEBUG_TAG, "finally — isSubmitting=false")
                             }
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape    = RoundedCornerShape(12.dp),
-                    colors   = ButtonDefaults.buttonColors(containerColor = orangeN, disabledContainerColor = orangeN.copy(alpha = 0.3f)),
-                    enabled  = selected != null && !isSubmitting
-                ) {
-                    if (isSubmitting) {
-                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Submitting...", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    } else {
-                        Icon(Icons.Default.Warning, null, tint = Color.White, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Submit Report", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     }
+                },
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape    = RoundedCornerShape(12.dp),
+                colors   = ButtonDefaults.buttonColors(containerColor = orangeN, disabledContainerColor = orangeN.copy(alpha = 0.3f)),
+                enabled  = selected != null && !isSubmitting
+            ) {
+                if (isSubmitting) {
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Submitting...", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                } else {
+                    Icon(Icons.Default.Warning, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Submit Report", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 }
-                Spacer(Modifier.height(10.dp))
-                OutlinedButton(
-                    onClick  = onDismiss,
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape    = RoundedCornerShape(12.dp),
-                    border   = BorderStroke(1.dp, borderN),
-                    colors   = ButtonDefaults.outlinedButtonColors(contentColor = mutedN)
-                ) { Text("Cancel", fontSize = 14.sp) }
-                Spacer(Modifier.height(8.dp))
             }
+            Spacer(Modifier.height(10.dp))
+            OutlinedButton(
+                onClick  = onDismiss,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape    = RoundedCornerShape(12.dp),
+                border   = BorderStroke(1.dp, borderN),
+                colors   = ButtonDefaults.outlinedButtonColors(contentColor = mutedN)
+            ) { Text("Cancel", fontSize = 14.sp) }
+            Spacer(Modifier.height(8.dp))
         }
     }
 }
