@@ -71,9 +71,10 @@ private const val MODEL_INPUT_SIZE = 640f
 private val detectionBoxColor = Color.Green
 
 private data class SaveErrorInfo(
+    val title: String = "Save Failed",
     val userMessage: String,
-    val technicalDetails: String,
-    val errorCode: String
+    val technicalDetails: String = "",
+    val errorCode: String = ""
 )
 
 private val tealN    = Color(0xFF2DD4BF)
@@ -419,7 +420,14 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                 .background(orangeN.copy(alpha = 0.18f))
                 .border(1.dp, orangeN.copy(alpha = 0.55f), RoundedCornerShape(20.dp))
                 .clickable(remember { MutableInteractionSource() }, null) {
-                    isScanningRef.set(false); showComplaintSheet = true
+                    if (detectedItems.isEmpty()) {
+                        saveError = SaveErrorInfo(
+                            title       = "Scan Required",
+                            userMessage = "You need to scan an item first."
+                        )
+                    } else {
+                        isScanningRef.set(false); showComplaintSheet = true
+                    }
                 }
                 .padding(horizontal = 11.dp, vertical = 6.dp)
         ) {
@@ -456,7 +464,16 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                     Icon(painterResource(id = R.drawable.ic_camera_switch), contentDescription = "Flip camera", tint = whiteN, modifier = Modifier.size(24.dp))
                 }
                 Button(
-                    onClick  = { isScanningRef.set(false); showReviewSheet = true },
+                    onClick  = {
+                        if (detectedItems.isEmpty()) {
+                            saveError = SaveErrorInfo(
+                                title       = "Scan Required",
+                                userMessage = "You need to scan an item first."
+                            )
+                        } else {
+                            isScanningRef.set(false); showReviewSheet = true
+                        }
+                    },
                     modifier = Modifier.weight(1f).height(52.dp).shadow(8.dp, RoundedCornerShape(16.dp)),
                     shape    = RoundedCornerShape(16.dp),
                     colors   = ButtonDefaults.buttonColors(containerColor = redN),
@@ -498,21 +515,22 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         ) {
             ComplaintSheet(
                     onDismiss = { showComplaintSheet = false; isScanningRef.set(true) },
-                    onSubmitReport = { reason, notes ->
+                    onSubmitReport = { complaintInfo ->
                         val userId = SupabaseModule.client.auth.currentUserOrNull()?.id
-                        if (userId != null) {
+                        val item   = detectedItems.firstOrNull()
+                        if (userId != null && item != null) {
                             try {
                                 withContext(Dispatchers.IO) {
-                                    supabaseRepo.submitManagerReport(userId, reason, notes)
+                                    supabaseRepo.submitItemComplaint(userId, item, complaintInfo)
                                 }
-                                Log.d(TAG, "Report submitted successfully")
+                                Log.d(TAG, "Complaint submitted successfully")
                                 true
                             } catch (e: Exception) {
-                                Log.e(TAG, "Report submission failed: ${e.message}", e)
+                                Log.e(TAG, "Complaint submission failed: ${e.message}", e)
                                 false
                             }
                         } else {
-                            Log.w(TAG, "Report not submitted — user not authenticated")
+                            Log.w(TAG, "Complaint not submitted — user not authenticated or no item scanned")
                             false
                         }
                     }
@@ -523,14 +541,20 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
         if (saveError != null) {
             AlertDialog(
                 onDismissRequest = { saveError = null; retryAction = null; isScanningRef.set(true) },
-                title    = { Text("Save Failed", color = whiteN, fontWeight = FontWeight.Bold) },
+                title    = { Text(saveError!!.title, color = whiteN, fontWeight = FontWeight.Bold) },
                 text     = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(saveError!!.userMessage, color = mutedN, fontSize = 14.sp, lineHeight = 20.sp)
-                        HorizontalDivider(color = borderN)
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(saveError!!.technicalDetails, color = mutedN.copy(alpha = 0.8f), fontSize = 11.sp, fontFamily = FontFamily.Monospace, lineHeight = 15.sp)
-                            Text("Code: ${saveError!!.errorCode}", color = orangeN, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                        if (saveError!!.technicalDetails.isNotBlank() || saveError!!.errorCode.isNotBlank()) {
+                            HorizontalDivider(color = borderN)
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (saveError!!.technicalDetails.isNotBlank()) {
+                                    Text(saveError!!.technicalDetails, color = mutedN.copy(alpha = 0.8f), fontSize = 11.sp, fontFamily = FontFamily.Monospace, lineHeight = 15.sp)
+                                }
+                                if (saveError!!.errorCode.isNotBlank()) {
+                                    Text("Code: ${saveError!!.errorCode}", color = orangeN, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                }
+                            }
                         }
                     }
                 },
@@ -540,10 +564,19 @@ private fun NewBoxContent(navController: androidx.navigation.NavController) {
                     }
                 },
                 confirmButton = {
-                    Button(
-                        onClick = { val r = retryAction; saveError = null; hasNavigatedRef.set(true); isSaving = true; r?.invoke() },
-                        colors  = ButtonDefaults.buttonColors(containerColor = redN)
-                    ) { Text("Retry", color = Color.White) }
+                    if (retryAction != null) {
+                        Button(
+                            onClick = {
+                                val r = retryAction
+                                saveError   = null
+                                retryAction = null
+                                hasNavigatedRef.set(true)
+                                isSaving = true
+                                r?.invoke()
+                            },
+                            colors  = ButtonDefaults.buttonColors(containerColor = redN)
+                        ) { Text("Retry", color = Color.White) }
+                    }
                 },
                 containerColor    = surfN,
                 titleContentColor = whiteN
@@ -719,7 +752,7 @@ private fun SmallQtyButton(text: String, active: Boolean = false, onClick: () ->
 // ── ComplaintSheet ────────────────────────────────────────────────────────────
 
 @Composable
-fun ComplaintSheet(onDismiss: () -> Unit, onSubmitReport: suspend (reason: String, notes: String) -> Boolean) {
+fun ComplaintSheet(onDismiss: () -> Unit, onSubmitReport: suspend (complaintInfo: String) -> Boolean) {
     val reasons      = listOf("Item damaged", "Wrong item", "Torn / worn out", "Missing label", "Other")
     var selected     by remember { mutableStateOf<String?>(null) }
     var notes        by remember { mutableStateOf("") }
@@ -798,7 +831,11 @@ fun ComplaintSheet(onDismiss: () -> Unit, onSubmitReport: suspend (reason: Strin
                             sheetScope.launch {
                                 isSubmitting = true
                                 try {
-                                    val success = onSubmitReport(selected!!, notes)
+                                    val complaintInfo = buildString {
+                                        append(selected!!)
+                                        if (notes.isNotBlank()) append(": $notes")
+                                    }
+                                    val success = onSubmitReport(complaintInfo)
                                     if (success) submitted = true
                                 } finally {
                                     isSubmitting = false

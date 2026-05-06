@@ -50,14 +50,25 @@ data class SupabaseBoxResponse(
 /**
  * Payload sent when inserting a detected item.
  * Maps [DetectedItem.label] → `name`, [DetectedItem.count] → `count`.
- * `box_id` links the item to its parent box.
- * `discription` is an existing nullable boolean column — unused by the app.
+ * `box_id` links the item to its parent box; pass `null` when the item is not
+ * yet assigned to a box (e.g. when filing a complaint).
  */
 @Serializable
 data class SupabaseItemInsert(
-    @SerialName("box_id") val boxId: Long,
+    @SerialName("box_id") val boxId: Long?,
     val name: String,
     val count: Int
+)
+
+/**
+ * Payload sent when inserting a new complaint.
+ * The server generates `id`, `status` (default 'pending'), and `created_at`.
+ */
+@Serializable
+data class ComplaintInsert(
+    @SerialName("user_id")        val userId: String,
+    @SerialName("item_id")        val itemId: Long,
+    @SerialName("complaint_info") val complaintInfo: String
 )
 
 /**
