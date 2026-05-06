@@ -35,9 +35,10 @@ private const val TAG_REPO = "SupabaseRepository"
  */
 class SupabaseRepository {
 
-    private val boxesTable = SupabaseModule.client.postgrest["boxes"]
-    private val itemsTable = SupabaseModule.client.postgrest["items"]
-    private val usersTable = SupabaseModule.client.postgrest["warehouse_users"]
+    private val boxesTable      = SupabaseModule.client.postgrest["boxes"]
+    private val itemsTable      = SupabaseModule.client.postgrest["items"]
+    private val usersTable      = SupabaseModule.client.postgrest["warehouse_users"]
+    private val complaintsTable = SupabaseModule.client.postgrest["complaints"]
 
     /**
      * Atomically saves a box and all its detected items to Supabase.
@@ -236,6 +237,59 @@ class SupabaseRepository {
 
         SupabaseModule.client.postgrest["system_alerts"].insert(alert)
     }
+    /**
+     * Files a complaint for a scanned item.
+     *
+     * Sequence:
+     *   1. Insert [item] into `items` with `box_id = null` and return the
+     *      server-generated `id`.
+     *   2. Insert a row into `complaints` linking [userId], the new item id,
+     *      and [complaintInfo].
+     *
+     * Note: a PostgreSQL trigger on `complaints` automatically creates the
+     * corresponding `system_alerts` row — no Kotlin code is needed for that.
+     *
+     * @throws Exception on any network or server error.
+     */
+    suspend fun submitItemComplaint(
+        userId: String,
+        item: DetectedItem,
+        complaintInfo: String,
+    ) {
+        Log.d(TAG_REPO, "submitItemComplaint — userId=$userId item=${item.label} info=$complaintInfo")
+
+        // 1. Insert the item (unboxed) and retrieve its generated id
+        val insertedItem = try {
+            itemsTable
+                .insert(SupabaseItemInsert(boxId = null, name = item.label, count = item.count)) {
+                    select(Columns.list("id"))
+                }
+                .decodeSingle<SupabaseItemResponse>()
+        } catch (e: Exception) {
+            Log.e(TAG_REPO, "  ✗ item insert for complaint FAILED: ${e.message}", e)
+            throw e
+        }
+        Log.d(TAG_REPO, "  → item inserted — id=${insertedItem.id}")
+
+        // 2. Insert the complaint record
+        // Note: if this step fails after step 1 has succeeded, the item row
+        // inserted above will remain with box_id = null. A periodic cleanup job
+        // or a PostgreSQL transaction wrapping both inserts would prevent orphans.
+        try {
+            complaintsTable.insert(
+                ComplaintInsert(
+                    userId        = userId,
+                    itemId        = insertedItem.id,
+                    complaintInfo = complaintInfo,
+                )
+            )
+            Log.d(TAG_REPO, "  → complaint inserted for itemId=${insertedItem.id}")
+        } catch (e: Exception) {
+            Log.e(TAG_REPO, "  ✗ complaint insert FAILED: ${e.message}", e)
+            throw e
+        }
+    }
+
     private suspend fun fetchItemsCountForBoxes(boxIds: List<Long>): Int {
         if (boxIds.isEmpty()) return 0
         val items = itemsTable

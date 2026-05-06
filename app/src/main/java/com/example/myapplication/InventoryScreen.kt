@@ -297,7 +297,10 @@ fun InventoryScreen(navController: NavController, viewModel: InventoryViewModel 
                                 }
                             } else {
                                 repeat(weeks) { week ->
-                                    Row(modifier = Modifier.fillMaxWidth()) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
                                         repeat(7) { col ->
                                             val cellIndex = week * 7 + col
                                             val dayNum = cellIndex - firstDayOffset + 1
@@ -324,12 +327,7 @@ fun InventoryScreen(navController: NavController, viewModel: InventoryViewModel 
                                                             }
                                                         else Modifier
                                                     )
-                                                    .background(
-                                                        when {
-                                                            isActive -> Color(0xFF2DD4BF).copy(alpha = 0.07f)
-                                                            else -> Color.Transparent
-                                                        }
-                                                    )
+                                                    .background(Color.Transparent)
                                                     .padding(vertical = 6.dp),
                                                 horizontalAlignment = Alignment.CenterHorizontally
                                             ) {
@@ -337,7 +335,7 @@ fun InventoryScreen(navController: NavController, viewModel: InventoryViewModel 
                                                     if (isValid) "$dayNum" else "",
                                                     color = when {
                                                         !isValid -> Color.Transparent
-                                                        isToday || isActive -> Color(0xFF2DD4BF)
+                                                        isToday -> Color(0xFF2DD4BF)
                                                         else -> Color(0xFF8B949E)
                                                     },
                                                     fontSize = if (isToday) 18.sp else 13.sp,
@@ -697,15 +695,14 @@ private fun WeekStrip(
 
     // Day cells
     Row(
-        modifier = Modifier.height(32.dp), // Force enough height for the 25.sp text
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Center
-        ) {
+    ) {
         currentWeekDays.forEach { date ->
             val isToday  = date == today
             val isActive = activeDates.contains(date)
             val textColor = when {
                 isToday  -> HomePalette.white
-                isActive -> HomePalette.teal
                 else     -> HomePalette.muted
             }
             val textSize = when {
